@@ -34,7 +34,18 @@ python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinv
 2回目以降は、合成音声をキャッシュ（`.listening_cache/`）から使い回し、文章が変わった部分だけ作り直します。
 回数・速度・無音・オン/オフはアプリ側で変えるので、作り直しは不要です。
 
-既に `.listening.json` がある教材（Iran 回など）は、音声だけを作ります。
+既に `.listening.json` がある教材は、音声だけを作ります。
+
+```bash
+python3 tools/render_listening_audio.py "…/元の名前.listening.json"
+```
+
+**訳の訂正データ（`元の名前.fix.json`）がある教材**：既存JSONの訳が音声とずれていた回のために、訂正データを用意しています。
+訂正データを当てて `.listening.json` を作ってから、音声を作ります。元のJSONは変更しません。
+
+```bash
+python3 tools/apply_fix.py "英語/Business Daily/[Business Daily] Iran’s economy_ Counting the cost of war (20260101).json"
+```
 
 ```bash
 python3 tools/render_listening_audio.py "英語/Business Daily/[Business Daily] Iran’s economy_ Counting the cost of war (20260101).listening.json"

@@ -220,6 +220,32 @@ class ConvertTest(TempDir):
         self.assertEqual(merged[0]["translation"], "物価が上がった。")
 
 
+class ApplyFixTest(TempDir):
+    def test_apply_fix(self):
+        sys.path.insert(0, os.path.dirname(HERE))
+        import apply_fix
+        j = self.write("[Demo] Ep (20260101).json", episode(ConvertTest.SEGS))
+        self.write("[Demo] Ep (20260101).ttml", TTML)
+        fix = {"format": "podcast-listening-fix", "formatVersion": 1, "base": {"file": "x", "sha256": convert.sha256_file(j)},
+               "segments": {"1#1": {"translation": "物価が上がった。", "vocab": [["went up", "上がった", "句動詞", ""]]},
+                            "1#2": {"translation": "人々は心配している。", "vocab": [], "fix": "【訂正】メモ"},
+                            "2": {"translation": None, "vocab": [["not much", "ほとんどない", "熟語", ""]], "grammar": "[[not]]で否定。"}}}
+        self.write("[Demo] Ep (20260101).fix.json", fix)
+        doc = apply_fix.apply(j, j[:-5] + ".fix.json")
+        self.assertEqual([s["key"] for s in doc["segments"]], ["1#1", "1#2", "2"])  # TTMLの文境界で分割
+        self.assertEqual(doc["segments"][1]["translation"], "人々は心配している。")
+        self.assertEqual(doc["segments"][2]["translation"], "大したことはない。")  # null は既存の訳のまま
+        self.assertEqual(doc["segments"][2]["listening"]["grammar"], "[[not]]で否定。")
+        self.assertIn("originalJson", doc["sources"])
+        with open(j[:-5] + ".retranslated.json", encoding="utf-8") as f:
+            fixed = json.load(f)
+        self.assertEqual(fixed["segments"][0]["grammar"], "【訂正】メモ")
+        fix["base"]["sha256"] = "0" * 64
+        self.write("[Demo] Ep (20260101).fix.json", fix)
+        with self.assertRaises(SystemExit):
+            apply_fix.apply(j, j[:-5] + ".fix.json")
+
+
 class StepParityTest(TempDir):
     """書き出し（Python）とアプリ（JavaScript）の再生順が同じであること。"""
 
