@@ -10,11 +10,13 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "collect_for_chatgpt.py")
 EPOCH = datetime(2001, 1, 1).timestamp()
+TODAY = datetime.now().strftime("%Y-%m-%d")
+YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 class CollectTest(unittest.TestCase):
@@ -39,7 +41,7 @@ class CollectTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
-    def add(self, pk, pod, title, pub, downloaded, ttml=True):
+    def add(self, pk, pod, title, pub, downloaded, ttml=True, ttml_saved=None):
         audio = os.path.join(self.group, "Library", "Cache", "Audio", f"{pk}.mp3")
         with open(audio, "wb") as f:
             f.write(b"ID3" + bytes(100))
@@ -47,15 +49,19 @@ class CollectTest(unittest.TestCase):
         os.utime(audio, (ts, ts))
         tid = f"transcript_{pk}"
         if ttml:
-            self.add_ttml(pk)
+            self.add_ttml(pk, ttml_saved)
         self.db.execute("INSERT INTO ZMTEPISODE VALUES (?,?,?,?,?,?,?,?)",
                         (pk, title, "file://" + audio.replace(" ", "%20"), pod,
                          datetime.strptime(pub, "%Y-%m-%d").timestamp() - EPOCH, f"uuid-{pk}", 1000 + pk, tid))
         self.db.commit()
 
-    def add_ttml(self, pk):
-        with open(os.path.join(self.group, "Library", "Cache", "Assets", "TTML", f"transcript_{pk}-{1000 + pk}.ttml"), "w") as f:
+    def add_ttml(self, pk, saved=None):
+        path = os.path.join(self.group, "Library", "Cache", "Assets", "TTML", f"transcript_{pk}-{1000 + pk}.ttml")
+        with open(path, "w") as f:
             f.write("<tt/>")
+        if saved:
+            ts = datetime.strptime(saved, "%Y-%m-%d %H:%M").timestamp()
+            os.utime(path, (ts, ts))
 
     def run_app(self):
         env = dict(os.environ, PODCASTS_GROUP=self.group, PUBLIC_DIR=self.public, DESKTOP_DIR=self.desktop, NO_OPEN="1")
@@ -68,9 +74,10 @@ class CollectTest(unittest.TestCase):
         return sorted(f for f in os.listdir(dest) if not f.startswith("."))
 
     def test_collect(self):
-        self.add(1, 1, "Iran’s economy: Counting the cost of war", "2026-01-01", "2026-10-28 09:00")
-        self.add(2, 1, "Old episode", "2026-10-20", "2026-10-27 23:59")       # 前日のダウンロード（対象外）
-        self.add(3, 2, "第95集 汉字/拼音?", "2026-10-25", "2026-10-28 10:00", ttml=False)  # 字幕がまだない
+        self.add(1, 1, "Iran’s economy: Counting the cost of war", "2026-01-01", TODAY + " 00:01")
+        self.add(2, 1, "Old episode", "2026-10-20", YESTERDAY + " 23:59", ttml_saved=YESTERDAY + " 23:59")  # 前の日（対象外）
+        self.add(3, 2, "第95集 汉字/拼音?", "2026-10-25", TODAY + " 00:02", ttml=False)  # 字幕がまだない
+        self.add(4, 1, "Old audio, old transcript today?", "2026-10-21", YESTERDAY + " 10:00", ttml=False)
         out = self.run_app()
         self.assertEqual(self.files(), [
             "[Business Daily] Iran’s economy Counting the cost of war (20260101).mp3",
@@ -78,24 +85,31 @@ class CollectTest(unittest.TestCase):
             "[TeaTime Chinese 茶歇中文] 第95集 汉字 拼音 (20261025).mp3",
         ])
         self.assertIn("字幕がまだない回（1件", out)
+        self.assertIn("今日（" + TODAY, out)
         link = os.path.join(self.desktop, "PodcastsChatGPT")
         self.assertTrue(os.path.islink(link) and os.path.samefile(link, self.lib))
 
-        # 2回目: 新しいものはない
-        self.assertIn("字幕がまだない回（1件", self.run_app())
-        # 字幕が後からできた → 字幕だけ足す
+        # 2回目: 新しいものはない（同じファイルを二度コピーしない）
+        self.run_app()
+        self.assertEqual(len(self.files()), 3)
+        # 字幕が今日保存された → 字幕だけ足す。前の日にダウンロードした音声の回でも、今日の字幕は集める（音声は集めない）
         self.add_ttml(3)
+        self.add_ttml(4)
         out = self.run_app()
-        self.assertIn("字幕（TTML）をコピー（1件", out)
+        self.assertIn("字幕（TTML）をコピー（2件", out)
+        self.assertNotIn("音声をコピー", out)
         self.assertIn("[TeaTime Chinese 茶歇中文] 第95集 汉字 拼音 (20261025).ttml", self.files())
+        self.assertIn("[Business Daily] Old audio, old transcript today (20261021).ttml", self.files())
+        # 前の日に保存された字幕は集めない
+        self.add_ttml(2, YESTERDAY + " 12:00")
+        self.run_app()
+        self.assertNotIn("Old episode", " ".join(self.files()))
         # 集めたファイルを移しても（会社へ送った後など）、もう一度はコピーしない
         dest = self.lib
         for f in self.files():
             os.remove(os.path.join(dest, f))
         self.assertIn("新しくダウンロードされた回はありませんでした", self.run_app())
         self.assertEqual(self.files(), [])
-        with open(os.path.join(dest, ".collected.json"), encoding="utf-8") as f:
-            self.assertEqual(len(json.load(f)["episodes"]), 2)
 
     def test_moves_old_folder(self):
         old = os.path.join(self.public, "Podcasts", "PodcastsChatGPT")

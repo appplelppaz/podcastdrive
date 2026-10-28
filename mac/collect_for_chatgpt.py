@@ -2,11 +2,12 @@
 Apple Podcasts でダウンロードしたエピソードの音声と字幕（TTML）を、
 ~/Desktop/Public/PodcastsChatGPT に集める（ChatGPT に JSON を作ってもらうため）。
 
-- 対象: 2026年10月28日以降に Mac にダウンロードされたエピソード（配信日ではなくダウンロードした日）。
+- 対象: このアプリを実行した日（今日）に Mac にダウンロード・保存された音声と字幕だけ（配信日ではなく、ファイルの日付）。
+  前の日にダウンロード・保存されたものは集めない。音声と字幕はそれぞれの日付で判断する。
 - コピーするだけ。Apple Podcasts の中のファイルも、既存のライブラリ（英語/中国語…）も変えない。
 - 名前は [チャンネル] エピソード名 (配信日YYYYMMDD).mp3 / .ttml（podcast-json と同じ）。
 - 一度集めた回は覚えておき、PodcastsChatGPT から移したり消したりしても、もう一度はコピーしない。
-- 字幕（TTML）がまだない回は音声だけをコピーし、後で字幕ができたら次の実行で字幕を足す。
+- 字幕（TTML）がまだない回は音声だけをコピーし、字幕が保存された日に実行すれば字幕を足す。
 - 初回に、デスクトップへ PodcastsChatGPT フォルダのショートカットを作る。
 
 ターミナルに「フルディスクアクセス」が必要（Apple Podcasts のデータを読むため）。なければ設定の画面を開いて案内する。
@@ -23,7 +24,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-SINCE = "2026-10-28"            # この日（0時）以降にダウンロードされた回を集める
 FOLDER_NAME = "PodcastsChatGPT"
 
 HOME = Path.home()
@@ -150,7 +150,7 @@ def load_state():
         with open(STATE, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
-        return {"since": SINCE, "episodes": {}}
+        return {"episodes": {}}
 
 
 def save_state(state):
@@ -229,43 +229,51 @@ def main():
         return 1
 
     state = load_state()
-    since = datetime.strptime(state.get("since", SINCE), "%Y-%m-%d")
+    state.pop("since", None)  # 以前の版の設定（決まった日以降）。今は「実行した日」だけ
+    today = datetime.now().date()
     done = state.setdefault("episodes", {})
     new_audio, new_ttml, waiting = [], [], []
     for ep in episodes:
-        try:
-            when = downloaded_at(ep["audio"])
-        except OSError:
-            continue
-        if when < since:
-            continue
         key = ep["uuid"] or str(ep["audio"])
         rec = done.get(key)
-        if rec and rec.get("ttml"):
+        if rec and rec.get("audio") and rec.get("ttml"):
             continue  # 音声も字幕も集めた回
-        date = pub_date(ep["pub"]) or when.strftime("%Y%m%d")
+        try:
+            audio_day = downloaded_at(ep["audio"]).date()
+        except OSError:
+            continue
+        ttml = find_ttml(ep)
+        try:
+            ttml_day = downloaded_at(ttml).date() if ttml else None
+        except OSError:
+            ttml, ttml_day = None, None
+        # 実行した日にダウンロード・保存されたファイルだけを集める（音声と字幕はそれぞれの日付で判断）
+        take_audio = audio_day == today and not (rec and rec.get("audio"))
+        take_ttml = ttml_day == today and not (rec and rec.get("ttml"))
+        if not (take_audio or take_ttml):
+            continue
+        date = pub_date(ep["pub"]) or audio_day.strftime("%Y%m%d")
         base = rec["name"] if rec else f"[{sanitize(ep['channel'])}] {sanitize(ep['title'])} ({date})"
-        rec = rec or {"name": base, "downloaded": when.strftime("%Y-%m-%d %H:%M")}
-        if not rec.get("audio"):
+        rec = rec or {"name": base}
+        if take_audio:
             dst = DEST / (base + (ep["audio"].suffix or ".mp3"))
             if not dst.exists():
                 shutil.copy2(ep["audio"], dst)
             rec["audio"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_audio.append(base)
-        ttml = find_ttml(ep)
-        if ttml:
+        if take_ttml:
             dst = DEST / (base + ".ttml")
             if not dst.exists():
                 shutil.copy2(ttml, dst)
             rec["ttml"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_ttml.append(base)
-        else:
+        elif not ttml:
             waiting.append(base)
         done[key] = rec
         save_state(state)
 
     print(f"\n集める先: {DEST}")
-    print(f"対象: {since:%Y-%m-%d} 以降にダウンロードされた回\n")
+    print(f"対象: 今日（{today:%Y-%m-%d}）ダウンロード・保存された音声と字幕だけ\n")
     if new_audio:
         print(f"音声をコピー（{len(new_audio)}件）:")
         for n in new_audio:
@@ -275,7 +283,7 @@ def main():
         for n in new_ttml:
             print("  ・" + n)
     if waiting:
-        print(f"字幕がまだない回（{len(waiting)}件。音声だけコピー済み。字幕は次回以降に足します。"
+        print(f"字幕がまだない回（{len(waiting)}件。音声だけコピーしました。字幕は保存された日に実行すれば足します。"
               "字幕がない番組は ChatGPT 側で音声から作ります）:")
         for n in waiting:
             print("  ・" + n)
