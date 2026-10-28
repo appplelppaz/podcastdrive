@@ -305,6 +305,33 @@ console.log(JSON.stringify(doc));""" % json.dumps("file://" + os.path.join(APP, 
             self.assertEqual(len(js["segments"]), 3 if fx else 2)
 
 
+class SubtitleAlignTest(unittest.TestCase):
+    """app/subtitle.js: 原文と単語の時刻を照らし合わせて、単語ごとに時刻を付ける。"""
+
+    @unittest.skipUnless(shutil.which("node"), "node が必要")
+    def test_align(self):
+        script = """
+import { alignSubtitle } from %s;
+const cases = JSON.parse(process.argv[1]);
+console.log(JSON.stringify(cases.map(([o, t, l]) => alignSubtitle(o, t, l))));""" % json.dumps(
+            "file://" + os.path.join(APP, "subtitle.js"))
+        cases = [
+            ["Today, we're here.", [[1, 1.5, "Today,"], [1.5, 1.8, "we're"], [1.8, 2.1, "here."]], "en"],
+            # 原文は音声認識の誤り（是懂非懂）を直してある。直した文字には時刻を付けない
+            ["我是Nathan。似懂非懂。", [[0, 0.2, "我"], [0.2, 0.4, "是"], [0.4, 0.8, "Nathan"], [0.8, 1.4, "是懂非懂"]], "zh"],
+            ["Completely different words.", [[0, 1, "Hello"], [1, 2, "world"]], "en"],
+        ]
+        res = json.loads(subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(cases)],
+                                        capture_output=True, text=True, check=True).stdout)
+        en, zh, other = res
+        self.assertEqual([(u["text"], u["b"]) for u in en["units"] if u["text"].strip()],
+                         [("Today,", 1), ("we're", 1.5), ("here.", 1.8)])
+        self.assertEqual("".join(u["text"] for u in zh["units"]), "我是Nathan。似懂非懂。")  # 原文はそのまま
+        self.assertEqual([(u["text"], u["b"]) for u in zh["units"]],
+                         [("我", 0), ("是", 0.2), ("Nathan", 0.4), ("。", None), ("似", None), ("懂非懂", 0.8), ("。", None)])
+        self.assertIsNone(other)  # 合わない文は強調しない
+
+
 class StepParityTest(TempDir):
     """書き出し（Python）とアプリ（JavaScript）の再生順が同じであること。"""
 

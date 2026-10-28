@@ -1,5 +1,6 @@
 import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
+import { alignSubtitle } from "./subtitle.js";
 
 const $ = (id) => document.getElementById(id);
 let settings = clampSettings(store.loadSettings(DEFAULTS));
@@ -193,18 +194,19 @@ function renderSubtitle(seg) {
   const box = $("subtitle");
   box.textContent = "";
   wordEls = [];
-  if (seg.wordTimings && seg.wordTimings.length) {
-    seg.wordTimings.forEach(([b, e, text], i) => {
+  const aligned = alignSubtitle(seg.original, seg.wordTimings, engine && engine.doc.sourceLanguage);
+  if (aligned) {
+    for (const u of aligned.units) {
+      if (!u.text.trim()) { box.append(u.text); continue; }
       const span = document.createElement("span");
       span.className = "w";
-      span.textContent = text;
-      span.dataset.b = b;
-      span.dataset.e = e;
+      span.textContent = u.text;
+      if (u.b !== null) { span.dataset.b = u.b; span.dataset.e = u.e; }
       wordEls.push(span);
-      box.append(span, i < seg.wordTimings.length - 1 ? " " : "");
-    });
+      box.append(span);
+    }
   } else {
-    box.textContent = seg.original; // 単語の時刻がない区間は文全体を表示するだけ
+    box.textContent = seg.original; // 時刻がない・原文と合わない区間は文全体を表示するだけ
   }
   spokenText = "";
   $("spoken").textContent = "";
@@ -216,10 +218,18 @@ function highlight() {
   const box = $("subtitle");
   box.classList.toggle("idle", t === null);
   if (t === null) return;
+  let prevDone = false;
   for (const w of wordEls) {
+    if (w.dataset.b === undefined) {
+      // 時刻のない文字（句読点や照らし合わせで合わなかった文字）は直前の単語に合わせる
+      w.classList.remove("now");
+      w.classList.toggle("done", prevDone);
+      continue;
+    }
     const b = Number(w.dataset.b), e = Number(w.dataset.e);
     w.classList.toggle("now", t >= b && t < e);
     w.classList.toggle("done", t >= e);
+    prevDone = t >= e;
   }
 }
 

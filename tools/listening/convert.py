@@ -140,12 +140,13 @@ def clip_bounds(segs, i, words, duration):
 
 
 def word_timings(seg, words):
-    """字幕の単語ごとの強調表示に使う、元音声での単語の時刻 [[開始, 終了, 単語], ...]。
+    """字幕の強調表示に使う、元音声での単語（中国語などは文字）の時刻 [[開始, 終了, 単語], ...]。
 
-    TTMLの単語列が原文と一致する区間だけ（一致しなければ強調しない）。
+    区間の時間内にある時刻をそのまま渡す。原文と単語がずれていても（音声認識の誤りを直した原文など）、
+    どの文字に時刻を付けるかはアプリが文字を照らし合わせて決め、合わない文は強調しない。
     """
     inside = [w for w in words if w[0] >= seg["begin"] - 1e-3 and w[1] <= seg["end"] + 1e-3]
-    if not inside or src._norm(" ".join(w[2] for w in inside)) != src._norm(seg["original"]):
+    if not inside:
         return None
     return [[round(b, 3), round(e, 3), t] for b, e, t in inside]
 
@@ -264,7 +265,9 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
         for ps in previous.get("segments", []):
             prev_by_key[(ps.get("key") or "",)] = ps
 
-    words = ttml["words"] if ttml else []
+    # 単語の時刻: JSON に wordTimings があればそれを（より細かい文字起こしから作ったもの）、なければ TTML の単語
+    json_words = sorted(w for s in ep["segments"] for w in s.get("wordTimings", []))
+    words = json_words or (ttml["words"] if ttml else [])
     out_segs = []
     counts = {"authored": 0, "auto": 0, "kept": 0}
     for i, seg in enumerate(segs):

@@ -106,6 +106,12 @@ def load_episode_json(path):
         }
         if s.get("pinyin"):
             seg["pinyin"] = str(s["pinyin"]).strip()
+        if isinstance(s.get("wordTimings"), list):
+            try:
+                seg["wordTimings"] = [(parse_time(w[0]), parse_time(w[1]), str(w[2]).strip())
+                                      for w in s["wordTimings"] if len(w) >= 3]
+            except (ValueError, TypeError):
+                warnings.append("区間 %s の wordTimings を読めないため使いません" % s.get("id", i + 1))
         if isinstance(s.get("translationParts"), list):
             seg["translationParts"] = [str(t).strip() for t in s["translationParts"]]
         out.append(seg)

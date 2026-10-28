@@ -95,6 +95,13 @@ export function loadEpisode(raw) {
       words, grammar: String(grammar).trim(),
     };
     if (s.pinyin) seg.pinyin = String(s.pinyin).trim();
+    if (Array.isArray(s.wordTimings)) {
+      try {
+        seg.wordTimings = s.wordTimings.filter((w) => w.length >= 3).map((w) => [parseTime(w[0]), parseTime(w[1]), String(w[2]).trim()]);
+      } catch {
+        warnings.push(`区間 ${id} の wordTimings を読めないため使いません`);
+      }
+    }
     if (Array.isArray(s.translationParts)) seg.translationParts = s.translationParts.map((t) => String(t).trim());
     out.push(seg);
   });
@@ -494,9 +501,10 @@ function clipBounds(segs, i, words, duration) {
   return { begin: round3(Math.max(0, seg.begin - lead)), end: round3(end) };
 }
 
+// 区間の時間内にある単語（中国語などは文字）の時刻。どの文字に付けるかは表示側で照らし合わせる
 function wordTimings(seg, words) {
   const inside = words.filter((w) => w[0] >= seg.begin - 1e-3 && w[1] <= seg.end + 1e-3);
-  if (!inside.length || norm(inside.map((w) => w[2]).join(" ")) !== norm(seg.original)) return null;
+  if (!inside.length) return null;
   return inside.map(([b, e, t]) => [round3(b), round3(e), t]);
 }
 
@@ -576,7 +584,10 @@ export function buildMaterial({ json, ttml, fix, name }) {
   }
   segs = mergeFragments(segs, src);
 
-  const words = tt ? tt.words : [];
+  // 単語の時刻: JSON に wordTimings があればそれを、なければ TTML の単語
+  const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
+  const jsonWords = ep.segments.flatMap((x) => x.wordTimings || []).sort(cmp);
+  const words = jsonWords.length ? jsonWords : tt ? tt.words : [];
   const outSegs = segs.map((s, i) => {
     const key = segmentKey(s);
     let li;
