@@ -1,0 +1,10 @@
+# 教材（音声・字幕・訳）は著作物のためリポジトリに入れない
+*.mp3
+*.m4a
+*.wav
+*.ttml
+*.listening.json
+.listening_cache/
+__pycache__/
+*.pyc
+.DS_Store
