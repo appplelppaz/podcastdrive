@@ -104,8 +104,11 @@ python3 tools/export_learning_track.py "…/元の名前.listening.json" --first
 
 ## アプリの置き場所
 
-アプリは静的ファイルだけでできています。`.github/workflows/pages.yml` は `app/` を GitHub Pages に公開します
-（リポジトリの Settings → Pages → Source を「GitHub Actions」にすると有効になります）。
+アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。
+
+- URL: https://podcastdrive-app.vercel.app
+- `main` に変更を入れると、自動で再デプロイされます。
+
 公開されるのはアプリ本体だけで、教材は含みません。教材は各端末に取り込みます。
 
 ## 専用JSON（`元の名前.listening.json`）
