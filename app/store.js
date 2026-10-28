@@ -5,32 +5,65 @@ import { buildMaterial } from "./material.js";
 
 const DB_NAME = "listening-mode";
 const STORE = "materials";
+const AUDIO = "audio";
 
+// 音声は教材の行とは別に、ArrayBuffer で保存する。
+// iPhone の Safari（特にホーム画面のアプリ）は大きな Blob/File を IndexedDB に保存できないことがある
+// （"Error preparing Blob/File data to be stored in object store"）。ArrayBuffer なら保存できる。
 function openDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: "id" });
-    req.onsuccess = () => resolve(req.result);
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(AUDIO)) db.createObjectStore(AUDIO, { keyPath: "id" });
+    };
+    req.onsuccess = () => {
+      // 新しい版が保存形式を更新するときに邪魔をしない
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("Close this app in other tabs and try again"));
   });
 }
 
-async function tx(mode, fn) {
+async function tx(stores, mode, fn) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode);
-    const result = fn(t.objectStore(STORE));
+    const t = db.transaction(stores, mode);
+    const result = fn(...[].concat(stores).map((n) => t.objectStore(n)));
     t.oncomplete = () => resolve(result && "result" in result ? result.result : result);
     t.onerror = () => reject(t.error);
+    // 容量不足などで中止されたときも、待ち続けずに失敗を返す
+    t.onabort = () => reject(t.error || new Error("Could not save on this device (storage may be full)"));
   });
 }
 
-// 一覧用。音声（Blob）は読み込まずに参照だけを持つので、たくさんあっても軽い。
+// 一覧用。音声は読み込まないので、たくさんあっても軽い。
 export const listMaterials = () =>
-  tx("readonly", (s) => s.getAll()).then((rows) => rows.sort((a, b) => b.addedAt - a.addedAt));
-export const getMaterial = (id) => tx("readonly", (s) => s.get(id));
-export const putMaterial = (row) => tx("readwrite", (s) => s.put(row));
-export const deleteMaterial = (id) => tx("readwrite", (s) => s.delete(id));
+  tx(STORE, "readonly", (s) => s.getAll()).then((rows) => rows.sort((a, b) => b.addedAt - a.addedAt));
+export const getMaterial = (id) => tx(STORE, "readonly", (s) => s.get(id));
+export const deleteMaterial = (id) => tx([STORE, AUDIO], "readwrite", (s, a) => { s.delete(id); a.delete(id); });
+
+async function saveMaterial(row, audioFile) {
+  const data = await audioFile.arrayBuffer();
+  const type = audioFile.type || guessType(audioFile.name);
+  try {
+    await tx([STORE, AUDIO], "readwrite", (s, a) => { a.put({ id: row.id, data, type }); s.put(row); });
+  } catch (err) {
+    throw new Error("Could not save the audio on this device: " + (err && err.message || err));
+  }
+  return row;
+}
+
+// 再生用の音声。以前の版で行に Blob として保存した教材もそのまま使う。
+export async function getAudio(row) {
+  if (row.audio instanceof Blob) return row.audio;
+  const rec = await tx(AUDIO, "readonly", (a) => a.get(row.id));
+  if (!rec) throw new Error("The audio for this episode is missing. Delete it and import it again.");
+  return new Blob([rec.data], { type: rec.type || "audio/mpeg" });
+}
 
 export async function sha256(blob) {
   const buf = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -44,24 +77,30 @@ export async function sha256(blob) {
 // 返り値: { imported: [行], errors: [文] }
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav)$/i;
 
+// 準備ツールの中間ファイルと、訂正前の元ファイルの控え。選ばれても黙って使わない
+const SIDE_FILE = /\.(retranslated|listening-authored|before-fix)\.json$/i;
+
 function kindOf(name) {
   if (/\.listening\.json$/i.test(name)) return "listening";
   if (/\.fix\.json$/i.test(name)) return "fix";
-  if (/\.(retranslated|listening-authored)\.json$/i.test(name)) return null; // 準備ツールの中間ファイル
+  if (SIDE_FILE.test(name)) return null;
   if (/\.json$/i.test(name)) return "json";
-  if (/\.ttml$/i.test(name)) return "ttml";
+  if (/\.(ttml|xml)$/i.test(name)) return "ttml";
   if (AUDIO_EXT.test(name)) return "audio";
   return null;
 }
 
-const stemOf = (name) => normalizeName(name.replace(/(\.listening|\.fix)?\.(json|ttml|mp3|m4a|aac|wav)$/i, ""));
+const stemOf = (name) => normalizeName(name.replace(/(\.listening|\.fix)?\.(json|ttml|xml|mp3|m4a|aac|wav)$/i, ""));
 
 export async function importFiles(fileList) {
   const groups = new Map();
   const errors = [];
   for (const f of fileList) {
     const kind = kindOf(f.name);
-    if (!kind) continue;
+    if (!kind) {
+      if (!SIDE_FILE.test(f.name)) errors.push(`${f.name}: skipped (not an .mp3, .json or .ttml file)`);
+      continue;
+    }
     const key = stemOf(f.name);
     if (!groups.has(key)) groups.set(key, {});
     groups.get(key)[kind] = f;
@@ -116,10 +155,8 @@ async function importSources(g) {
     translationMismatch: doc.translationMismatch,
     addedAt: Date.now(),
     doc,
-    audio: new Blob([await g.audio.arrayBuffer()], { type: g.audio.type || guessType(g.audio.name) }),
   };
-  await putMaterial(row);
-  return row;
+  return saveMaterial(row, g.audio);
 }
 
 // URL から取り込む（音声・TTML・訂正データは JSON と同じ場所の同じ名前のものを探す）
@@ -181,13 +218,12 @@ async function importDoc(doc, findFile, onlyAudio = null) {
     segments: doc.segments.length,
     addedAt: Date.now(),
     doc,
-    audio: new Blob([await audio.arrayBuffer()], { type: audio.type || guessType(audio.name) }),
   };
-  await putMaterial(row);
-  return row;
+  return saveMaterial(row, audio);
 }
 
 function guessType(name) {
+  name = name.toLowerCase();
   if (name.endsWith(".m4a")) return "audio/mp4";
   if (name.endsWith(".mp3")) return "audio/mpeg";
   if (name.endsWith(".wav")) return "audio/wav";
