@@ -172,7 +172,7 @@ class ConvertTest(TempDir):
         doc, j, out = self.make(self.SEGS)
         self.assertEqual(doc["format"], "podcast-listening")
         self.assertEqual(doc["formatVersion"], 1)
-        self.assertTrue(out.endswith("[Demo] Ep (20260101).listening.json"))
+        self.assertTrue(out.endswith("/E (2026-01-01).listening.json"))  # エピソード名 (日付)
         self.assertEqual(doc["sourceLanguage"], "en")
         s = doc["segments"][1]
         for k in ("id", "key", "sourceSegmentIds", "begin", "end", "clip", "original", "translation",
@@ -218,6 +218,18 @@ class ConvertTest(TempDir):
         self.assertEqual(len(merged), 1)
         self.assertEqual((merged[0]["begin"], merged[0]["end"], merged[0]["sourceIds"]), (1.0, 9.0, [1, 2]))
         self.assertEqual(merged[0]["translation"], "物価が上がった。")
+
+
+class NamingTest(unittest.TestCase):
+    def test_episode_stem(self):
+        stem = convert.episode_stem
+        self.assertEqual(stem({"episode": "Iran's economy: Counting the cost of war", "publishDate": "2026-01-01"},
+                              "/x/[Business Daily] Iran’s economy_ Counting the cost of war (20260101).json"),
+                         "Iran's economy - Counting the cost of war (2026-01-01)")
+        self.assertEqual(stem({"episode": "Reinventing Kodak", "publishDate": ""},
+                              "/x/[Business Daily] Reinventing Kodak (20260414).json"), "Reinventing Kodak (2026-04-14)")
+        self.assertEqual(stem({"episode": "A/B? <live>"}, "/x/[Demo] AB (20260102).json"), "A-B live (2026-01-02)")
+        self.assertEqual(stem({}, "/x/plain.json"), "plain")
 
 
 class ApplyFixTest(TempDir):

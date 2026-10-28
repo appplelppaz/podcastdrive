@@ -3,6 +3,8 @@
 
   python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] ... (20260101).json"
 
+出力は同じフォルダの「エピソード名 (日付).listening.json」と「エピソード名 (日付).listening.m4a」。
+
 同名の .ttml と .mp3 を同じフォルダから探す。2回目以降は、作者の解説と合成音声のキャッシュを
 引き継ぎ、変わった部分だけ作り直す。
 """
