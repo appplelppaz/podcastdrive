@@ -643,6 +643,8 @@ export function buildMaterial({ json, ttml, fix, name }) {
     targetLanguage: tgt,
     sources: { name: file.base, ttml: !!tt, fix: !!fix, ...(duration ? { durationSeconds: duration } : {}) },
     translationMismatch,
+    // 単語ごとの時刻があるか（Apple の TTML など）、文ごとの時刻だけか（音声から作った TTML・JSON のみ）
+    timingDetail: words.length >= 2 * outSegs.length ? "word" : "sentence",
     cues,
     segments: outSegs,
     warnings,

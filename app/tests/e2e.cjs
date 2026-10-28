@@ -78,6 +78,11 @@ async function openMaterial(page, title, button) {
         audio: audio.result.map((a) => a.data instanceof ArrayBuffer && a.data.byteLength > 1000 && a.type) });
     };
   }));
+  const refined = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = () => { const g = req.result.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => resolve(g.result.map((r) => r.doc.clipsRefined)); };
+  }));
+  check("取り込み時に文の切れ目を元音声に合わせる", refined.length === 2 && refined.every((r) => r && r.version >= 1 && !r.skipped && r.boundaries > 0), JSON.stringify(refined));
   check("音声は ArrayBuffer で別に保存（行には持たない）", !stored.rowAudio && stored.audio.length === 2 && stored.audio.every((t) => t === "audio/mpeg"), JSON.stringify(stored));
 
   // ---- 再生順序: ①元音声 → 訳 → 語彙・文法 → ④元音声（読み上げは端末の声）
@@ -203,10 +208,11 @@ async function openMaterial(page, title, button) {
     const req = indexedDB.open("listening-mode");
     req.onsuccess = async () => {
       const db = req.result;
-      const row = await new Promise((r) => { const g = db.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => r(g.result[0]); });
+      const row = await new Promise((r) => { const g = db.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => r(g.result.find((x) => x.mode === "direct")); });
       const a = await new Promise((r) => { const g = db.transaction("audio").objectStore("audio").get(row.id); g.onsuccess = () => r(g.result); });
       const t = db.transaction("materials", "readwrite");
-      t.objectStore("materials").put({ ...row, id: "legacy", title: "Legacy blob row", addedAt: 1, audio: new Blob([a.data], { type: a.type }) });
+      const doc = { ...row.doc, clipsRefined: undefined }; // 文の切れ目を合わせる前の版で取り込んだもの
+      t.objectStore("materials").put({ ...row, doc, id: "legacy", title: "Legacy blob row", addedAt: 1, audio: new Blob([a.data], { type: a.type }) });
       t.oncomplete = resolve; t.onerror = reject;
     };
   }));
@@ -215,6 +221,11 @@ async function openMaterial(page, title, button) {
   await openMaterial(page, "Legacy blob row", ".start");
   await waitFor(page, () => window.__engine.log.some((l) => l.kind === "original") && !document.getElementById("audio").paused);
   check("以前の版で保存した教材も再生できる", true);
+  const legacyRefined = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = () => { const g = req.result.transaction("materials").objectStore("materials").get("legacy"); g.onsuccess = () => resolve(g.result.doc.clipsRefined); };
+  }));
+  check("以前の版の教材は最初に開いたときに切れ目を合わせて保存", legacyRefined && legacyRefined.version >= 1, JSON.stringify(legacyRefined));
   await page.click("#back");
 
   // ---- 元音声と読み上げの切り替え直後に iPhone が送ってくる停止では止まらない。それ以外の停止は中断

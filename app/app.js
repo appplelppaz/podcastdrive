@@ -115,7 +115,7 @@ async function renderLibrary() {
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
   status.className = "status";
-  status.textContent = "Importing…";
+  status.textContent = "Importing… (matching sentences to the audio, this takes a few seconds)";
   try {
     const { imported, errors } = await store.importFiles(e.target.files);
     const lines = imported.map((r) => `Imported “${r.title}”` +
@@ -176,6 +176,10 @@ function open(id, how) {
   setStatus("Loading audio…");
   show("player");
   store.getAudio(row).then(async (audio) => {
+    if (store.needsRefine(row)) {
+      setStatus("Matching sentences to the audio… (first time only)");
+      await store.ensureRefined(row, audio);
+    }
     // 無音がまだ鳴っていれば止め終えてから始める（その pause を中断と取り違えないように）
     const el = $("audio");
     if (!el.paused) await new Promise((r) => { el.addEventListener("pause", r, { once: true }); el.pause(); setTimeout(r, 300); });

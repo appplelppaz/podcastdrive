@@ -2,6 +2,7 @@
 // 設定と学習位置は localStorage に保存する。
 
 import { buildMaterial } from "./material.js";
+import { audioEnvelope, refineClips } from "./boundary.js";
 
 const DB_NAME = "listening-mode";
 const STORE = "materials";
@@ -46,8 +47,8 @@ export const listMaterials = () =>
 export const getMaterial = (id) => tx(STORE, "readonly", (s) => s.get(id));
 export const deleteMaterial = (id) => tx([STORE, AUDIO], "readwrite", (s, a) => { s.delete(id); a.delete(id); });
 
-async function saveMaterial(row, audioFile) {
-  const data = await audioFile.arrayBuffer();
+async function saveMaterial(row, audioFile, data) {
+  data = data || await audioFile.arrayBuffer();
   const type = audioFile.type || guessType(audioFile.name);
   try {
     await tx([STORE, AUDIO], "readwrite", (s, a) => { a.put({ id: row.id, data, type }); s.put(row); });
@@ -55,6 +56,27 @@ async function saveMaterial(row, audioFile) {
     throw new Error("Could not save the audio on this device: " + (err && err.message || err));
   }
   return row;
+}
+
+// 文の切れ目を元音声の実際の切れ目に合わせる（boundary.js）。取り込み時に一度だけ行う
+const REFINE_VERSION = 1;
+async function refineDoc(doc, data) {
+  let stats = null;
+  try {
+    const env = await audioEnvelope(data);
+    // 単語ごとの時刻があれば近くだけ、文ごとの時刻しかなければ広く探す
+    if (env) stats = refineClips(doc.segments, env, doc.sources.durationSeconds, { search: doc.timingDetail === "word" ? 0.35 : 0.8 });
+  } catch { /* 音声を調べられなければ時刻どおり */ }
+  doc.clipsRefined = { version: REFINE_VERSION, ...(stats || { skipped: true }) };
+}
+
+export const needsRefine = (row) => row.mode === "direct" && !(row.doc.clipsRefined && row.doc.clipsRefined.version >= REFINE_VERSION);
+
+// 以前の版で取り込んだ教材は、最初に開いたときに合わせて保存する
+export async function ensureRefined(row, audio) {
+  if (!needsRefine(row)) return;
+  await refineDoc(row.doc, await audio.arrayBuffer());
+  try { await tx(STORE, "readwrite", (s) => s.put(row)); } catch { /* 保存できなくても今回は使える */ }
 }
 
 // 再生用の音声。以前の版で行に Blob として保存した教材もそのまま使う。
@@ -145,6 +167,8 @@ async function importSources(g) {
     name: g.json.name,
   });
   doc.sources.audio = g.audio.name;
+  const data = await g.audio.arrayBuffer();
+  await refineDoc(doc, data);
   const row = {
     id: doc.materialId,
     title: doc.episode || doc.title,
@@ -156,7 +180,7 @@ async function importSources(g) {
     addedAt: Date.now(),
     doc,
   };
-  return saveMaterial(row, g.audio);
+  return saveMaterial(row, g.audio, data);
 }
 
 // URL から取り込む（音声・TTML・訂正データは JSON と同じ場所の同じ名前のものを探す）
