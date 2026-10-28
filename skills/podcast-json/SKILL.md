@@ -1,6 +1,6 @@
 ---
 name: "podcast-json"
-description: "ポッドキャストの一括処理パイプライン。Apple Podcasts から音声+TTMLをインポートし、ライブラリを整理した上で、TTMLを語学学習JSON（日本語訳・語彙・文法注釈付き）に変換する。「ポッドキャストを処理して」「JSONを作って」「TTMLを変換」「続けて」などで使う。"
+description: "ポッドキャストの一括処理パイプライン。Apple Podcasts から音声+TTMLをインポートし、ライブラリを整理した上で、TTMLを語学学習JSON（日本語訳・語彙・文法注釈・単語ごとの時刻付き）に変換する。JSON は Language Drill と聞き流しアプリの両方で使える。TTML がない回は podcast-transcribe で音声から作る。「ポッドキャストを処理して」「JSONを作って」「TTMLを変換」「続けて」「既存のJSONに単語の時刻を付けて」などで使う。"
 ---
 
 # ポッドキャスト一括処理スキル（インポート → 整理 → TTML→JSON変換）
@@ -11,8 +11,16 @@ description: "ポッドキャストの一括処理パイプライン。Apple Pod
 2. **整理** — ファイル名の統一・重複退避・**言語別フォルダへの再編**・状態ファイル更新
 3. **変換対象の決定** — `conversion_queue.json`（アプリの「変換依頼」ボタンが生成）があれば
    それを優先。なければ未変換TTMLを自動検出
-4. **変換** — TTML → 日本語訳・語彙・文法注釈付きJSON（1回の実行で最大3件）
-5. **報告** — 処理結果と残件を報告し、続行を促す
+4. **変換** — TTML → 日本語訳・語彙・文法注釈・単語ごとの時刻付きJSON（1回の実行で最大3件）
+5. **検証** — `validate_json.py` で訳のずれ・時刻・必須項目を確認（エラー0まで直す）
+6. **報告** — 処理結果と残件を報告し、続行を促す
+
+作る JSON は **Language Drill（iPad）と聞き流しアプリ（iPhone）の両方**で使う。
+既存の項目（`begin` `end` `original` `translation` `words` `grammar` `pinyin`）の形は変えず、
+聞き流しアプリ用の `wordTimings` を足す（知らない項目は Language Drill 側で無視される）。
+
+TTML がない回（`no_transcript`）や、1行ごとの時刻しかない古い Whisper の TTML の回は、
+**podcast-transcribe スキル**で音声から単語ごとの時刻付き TTML を作ってから変換する。
 
 全フェーズとも既存ファイルはスキップするので、何度実行しても安全。
 
@@ -136,7 +144,13 @@ lang, segs = parse_ttml("/path/to/episode.ttml")
 3. 各文に独自の `begin`（最初の単語）と `end`（最後の単語）を付与
 
 `<p>` 数よりセグメント数が大幅に増えるのは正常（例: 73 `<p>` → 282文）。
-`segs` の各要素のキー: `id`, `begin`, `end`, `original`。
+`segs` の各要素のキー: `id`, `begin`, `end`, `original`、
+TTML に単語ごとの時刻があるときは `wordTimings`（`[[開始秒, 終了秒, "語"], ...]`）。
+
+**TTML の時刻の細かさを最初に確認する**: `python3 parse_ttml.py x.ttml` の出力の `timing=`。
+- `timing=word`（Apple の自動字幕、podcast-transcribe で作ったもの）: そのまま変換する。
+- `timing=line`（古い mlx_whisper の TTML。1行に1つの時刻）: 時刻が粗く（1行10秒以上・音楽を含むことがある）、
+  `wordTimings` も作れない。ユーザーに podcast-transcribe で作り直すか確認する（作り直さずに変換してもよい）。
 
 **ファイル名パターン:**
 ```
@@ -173,13 +187,18 @@ lang, segs = parse_ttml("/path/to/episode.ttml")
         }
       ],
       "grammar": "主要な文法ポイントの日本語解説、または空文字列",
-      "pinyin":  "sourceLanguage が zh の場合のみ存在"
+      "pinyin":  "sourceLanguage が zh の場合のみ存在",
+      "wordTimings": [[3.46, 3.82, "Hello"], [3.82, 4.06, "and"]]
     }
   ]
 }
 ```
 
-書き出し: `json.dump(output, f, ensure_ascii=False, indent=2)`
+- `wordTimings`（任意・聞き流しアプリ用）: その文で話された語と時刻（秒、小数3桁）。TTML の単語の時刻をそのまま入れる。
+  文の `begin`〜`end` に入る語だけ。TTML に単語ごとの時刻がなければ省く。Language Drill は使わない（無視される）。
+- それ以外の項目の名前・形は変えない（Language Drill が読む）。項目を増やすときも既存の項目は消さない。
+
+書き出し: `parse_ttml.write_episode_json(output, path)`（`indent=2` と同じで、`wordTimings` だけ1文1行にまとめる）
 出力パス: TTML と同じディレクトリ・同じ basename の `.json`。
 
 ## 7. 翻訳・注釈ルール
@@ -200,6 +219,21 @@ lang, segs = parse_ttml("/path/to/episode.ttml")
 
 ### 文法（`grammar`）
 - 注目すべき文法構造を**1つ**、日本語で解説。単純な文は `""`。
+
+### 聞き流しモード向けの書き方（Language Drill の表示にもそのまま使える）
+聞き流しアプリは画面を見ずに聞く（運転中など）。JSON から次のように読み上げるので、それに合う書き方にする:
+原文の音声 → `translation` → `words` から2語（「原語 → `meaning` の最初の項目」）→ `grammar` の最初の1文 → 原文の音声。
+
+- **`translation`**: 1文の自然な日本語。数字は原文と同じ算用数字で書く（40日、50%、2017年、1000億ドル）。
+  算用数字が訳にないと「訳がずれている」と判定される（validate_json.py・アプリとも）。
+- **`words` の並び**: 聞いて覚えてほしい順に並べる（熟語・句動詞・その文の要の語を先に）。読み上げは上位2語だけ。
+- **`meaning`**: 最初の項目を**この文での意味**にする。言い換えは「、」で後ろに続ける（読み上げは最初の項目だけ）。
+  記号（→ ／ 〜 ＝ 《》）や括弧の補足、品詞名は `meaning` に入れない（`pos` に書く）。
+- **`grammar`**: 1行目を、読み上げて分かる**1文（60字程度まで）**にする。
+  「A — B」「→」「/」「( )」などの記号に頼らず、文で書く
+  （悪い例: `how the war is impacting ... — 間接疑問文。` 良い例: `how から後ろが「どのように影響しているか」という意味のまとまりで、looking at の目的語になっています。`）。
+  2行目以降は補足として画面にだけ出る（読み上げない）。
+- **`【訂正】` メモは別の行**に書く（文法の説明と同じ行に書かない）。読み上げでは `【訂正】` の行を飛ばす。
 
 ### 音声認識（Whisper）の誤りの訂正（中国語を中心に、全言語共通）
 Whisper で作った TTML には誤認識が残る（特に台湾華語・中英混じりの会話、固有名詞）。
@@ -231,6 +265,7 @@ Whisper の TTML は 1 行が短く（約25字・8秒目安）、1 つの文が 
    - 1 セグメントの上限は約 150 字。超える場合は区切り、続きがある側の行末は「，」のままにする。
    - 明らかな言い直し・重複（同じ語句を 2 回言い直した断片）は捨ててよい。
 2. `translation` は**文全体の自然な日本語**で書く（行ごとの訳をつなげない）。
+   まとめたセグメントの `wordTimings` は、JSON を書いた後に `add_word_timings.py` を実行すれば時刻の範囲から付く。
 3. `grammar` は行をまたぐ構文を優先して解説する（これがまとめる最大の目的）。
 4. `words` は文全体から 3〜8 項目。
 5. JSON のセグメント数は TTML の `<p>` 数と一致しなくてよい（TTML は時刻の素材、JSON が表示単位）。
@@ -279,7 +314,7 @@ SEGS = {**S1, **S2}
 
 ```python
 import json, re, os
-from parse_ttml import parse_ttml
+from parse_ttml import parse_ttml, write_episode_json
 # ... データファイルの import
 
 TTML_PATH = "..."
@@ -303,6 +338,8 @@ for seg in segs:
     }
     if lang == "zh":
         obj["pinyin"] = d.get("pinyin", "")
+    if "wordTimings" in seg:
+        obj["wordTimings"] = seg["wordTimings"]   # 聞き流しアプリ用（単語ごとの時刻）
     output_segs.append(obj)
 
 fname = os.path.basename(TTML_PATH)
@@ -323,22 +360,41 @@ output = {
     "segments": output_segs,
 }
 out_path = TTML_PATH[:-5] + ".json"
-with open(out_path, "w", encoding="utf-8") as f:
-    json.dump(output, f, ensure_ascii=False, indent=2)
+write_episode_json(output, out_path)
 print(f"✓ {len(output_segs)} segments → {out_path}")
 ```
 
 ## 10. 変換後の後処理（毎回必ず）
 
-1. **整合性検証**: 中盤・終盤から最低5セグメントを抜き取り、
+1. **自動検証**: `python3 validate_json.py "<...>.json" "<...>.ttml"` を実行し、**ERROR が0になるまで直す**。
+   - 訳のずれ（原文の数字が多くの訳に見当たらない＝1つずれている）、時刻の範囲で話された語と original の不一致、
+     id・時刻・必須項目の形を確認する。
+   - 文単位にまとめたセグメントは `add_word_timings.py "<...>.json"` で `wordTimings` を付けてから検証する。
+   - WARN（聞き流しモードで読みにくい書き方など）は簡単に直せるものは直す。
+2. **目視の整合性検証**: 中盤・終盤から最低5セグメントを抜き取り、
    original と translation の内容一致・オフバイワンなし・空訳ゼロを確認。
    文単位にまとめた場合は、時刻が単調増加し、TTML の全行がどれかのセグメントに
    含まれている（または意図的に捨てた重複のみ）ことを確認。
-2. **キュー更新**: 変換済みエントリを `conversion_queue.json` から削除。
+3. **キュー更新**: 変換済みエントリを `conversion_queue.json` から削除。
    空になったらファイルを削除。
-3. **誤認識の訂正確認**: 7章「音声認識の誤りの訂正」で直した箇所を報告用に控え、
+4. **誤認識の訂正確認**: 7章「音声認識の誤りの訂正」で直した箇所を報告用に控え、
    asr_fixes.json に追加した項目があれば一緒に報告する。
-4. **状態更新**: `python3 normalize_library.py --root $PODCASTS_DIR --apply` を再実行して
+5. **状態更新**: `python3 normalize_library.py --root $PODCASTS_DIR --apply` を再実行して
    `library_status.json` を最新化（アプリの表示に反映される）。
-5. **報告**: 処理済みファイル・セグメント数・スキップ数・残件数を報告。
+6. **報告**: 処理済みファイル・セグメント数・検証結果・スキップ数・残件数を報告。
    残件があれば「続けて」と言えば続行できることを伝える。
+
+## 11. 既存の JSON に単語ごとの時刻を付ける（聞き流しアプリ用）
+
+以前に作った JSON は `wordTimings` がない。訳などはそのままで時刻だけ足せる:
+
+```bash
+cp <skill-path>/scripts/add_word_timings.py <skill-path>/scripts/parse_ttml.py .
+python3 add_word_timings.py "<...>.json"            # 同じ名前の .ttml を使う
+python3 add_word_timings.py "<...>.json" --dry-run  # 書き換えずに結果だけ見る
+```
+
+- `wordTimings` 以外の項目は一切変えない（Language Drill はそのまま使える）。
+- TTML が1行ごとの時刻だけ（古い Whisper）のときは付けられない。podcast-transcribe で TTML を作り直す。
+- 「時刻の範囲の語と original が合わない区間」が出たら、その JSON の時刻か原文がずれている。報告して直し方を相談する。
+- 付けた後に `validate_json.py` を実行する。
