@@ -65,6 +65,13 @@ def asset_path(url):
     return p
 
 
+def copy_file(src, dst):
+    """途中のファイルを見せないよう、「.」で始まる名前でコピーしてから名前を変える（Dropbox への自動コピーが拾わない）。"""
+    tmp = dst.with_name("." + dst.name + ".copying")
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
 def downloaded_at(path):
     """ファイルが Mac に来た時刻（作成日。なければ更新日）。"""
     st = path.stat()
@@ -258,13 +265,13 @@ def main():
         if take_audio:
             dst = DEST / (base + (ep["audio"].suffix or ".mp3"))
             if not dst.exists():
-                shutil.copy2(ep["audio"], dst)
+                copy_file(ep["audio"], dst)
             rec["audio"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_audio.append(base)
         if take_ttml:
             dst = DEST / (base + ".ttml")
             if not dst.exists():
-                shutil.copy2(ttml, dst)
+                copy_file(ttml, dst)
             rec["ttml"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_ttml.append(base)
         elif not ttml:

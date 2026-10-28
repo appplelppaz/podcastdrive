@@ -115,6 +115,12 @@ Apple Podcasts で、実行した日（今日）にダウンロード・保存�
 前の日のものは集めません（音声と字幕はそれぞれの日付で判断）。
 ターミナルにフルディスクアクセスが必要です。確認: `python3 -m unittest mac/test_collect.py`
 
+`PodcastsChatGPTをDropboxへ自動コピー.command`（同じ zip に入る。元は `mac/dropbox_sync_setup.sh`）を一度開くと、
+`PodcastsChatGPT` に入ったファイルを Dropbox の `PodcastsChatGPT` フォルダへ自動でコピーし続けます
+（launchd: フォルダが変わるとすぐ＋10分ごと。`/usr/bin/rsync -rt --exclude=.*`）。
+PodcastsChatGPT から移したり消したりしても Dropbox 側は消しません。Mac に Dropbox のアプリが要り、
+rsync にフルディスクアクセスが要ります（初回に案内）。もう一度開くと止められます。
+
 ## アプリの置き場所
 
 アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。

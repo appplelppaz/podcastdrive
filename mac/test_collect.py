@@ -19,6 +19,99 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
+SETUP = os.path.join(HERE, "dropbox_sync_setup.sh")
+# launchctl の代わり: 登録した plist を覚え、kickstart で中のコマンドを動かす
+FAKE_LAUNCHCTL = """#!/bin/bash
+case "$1" in
+  bootstrap) echo "$3" > "$FAKE_STATE/plist" ;;
+  bootout) rm -f "$FAKE_STATE/plist" ;;
+  kickstart)
+    exec python3 - "$(cat "$FAKE_STATE/plist")" <<'PY'
+import plistlib, subprocess, sys
+with open(sys.argv[1], "rb") as f:
+    p = plistlib.load(f)
+with open(p["StandardErrorPath"], "a") as log:
+    subprocess.run(p["ProgramArguments"], stdout=log, stderr=log)
+PY
+    ;;
+esac
+"""
+# フルディスクアクセスがない rsync（1回目だけ拒まれる）
+FAKE_RSYNC = """#!/bin/bash
+if [ ! -f "$FAKE_STATE/allowed" ]; then
+  touch "$FAKE_STATE/allowed"
+  echo "rsync: opendir failed: Operation not permitted" >&2
+  exit 23
+fi
+exec rsync "$@"
+"""
+
+
+class DropboxSyncSetupTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = self.tmp.name
+        self.home = os.path.join(t, "home")
+        self.src = os.path.join(self.home, "Desktop", "Public", "PodcastsChatGPT")
+        self.dropbox = os.path.join(self.home, "Library", "CloudStorage", "Dropbox")
+        self.state = os.path.join(t, "state")
+        bin_dir = os.path.join(t, "bin")
+        for d in (self.src, self.dropbox, self.state, bin_dir):
+            os.makedirs(d)
+        for name, body in (("launchctl", FAKE_LAUNCHCTL), ("fake_rsync", FAKE_RSYNC)):
+            path = os.path.join(bin_dir, name)
+            with open(path, "w") as f:
+                f.write(body)
+            os.chmod(path, 0o755)
+        self.env = dict(os.environ, HOME=self.home, NO_OPEN="1", FAKE_STATE=self.state,
+                        PATH=bin_dir + os.pathsep + os.environ["PATH"], RSYNC=os.path.join(bin_dir, "fake_rsync"))
+        self.plist = os.path.join(self.home, "Library", "LaunchAgents",
+                                  "com.podcastdrive.podcastschatgpt.dropbox.plist")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_setup(self, answers=""):
+        r = subprocess.run(["bash", SETUP], input=answers, capture_output=True, text=True, env=self.env, timeout=60)
+        return r.returncode, r.stdout + r.stderr
+
+    def test_setup_copies_and_guides_full_disk_access(self):
+        for name in ("[A] B (20261028).mp3", "[A] B (20261028).ttml", ".collected.json", ".x.mp3.copying"):
+            with open(os.path.join(self.src, name), "w") as f:
+                f.write(name)
+        rc, out = self.run_setup("\n")  # 1回目は許可がない → 案内 → Enter で確かめ直す
+        self.assertEqual(rc, 0, out)
+        self.assertIn("フルディスクアクセス", out)
+        self.assertIn("設定しました", out)
+        dst = os.path.join(self.dropbox, "PodcastsChatGPT")
+        self.assertEqual(sorted(os.listdir(dst)), ["[A] B (20261028).mp3", "[A] B (20261028).ttml"])
+        with open(self.plist, "rb") as f:
+            import plistlib
+            p = plistlib.load(f)
+        self.assertEqual(p["WatchPaths"], [self.src])
+        self.assertEqual(p["ProgramArguments"][-2:], [self.src + "/", dst + "/"])
+        # 集めたファイルを移しても Dropbox 側は消さない。新しいファイルは足す
+        os.remove(os.path.join(self.src, "[A] B (20261028).mp3"))
+        with open(os.path.join(self.src, "[C] D (20261029).mp3"), "w") as f:
+            f.write("x")
+        subprocess.run(["launchctl", "kickstart", "x"], env=self.env, check=True)
+        self.assertEqual(sorted(os.listdir(dst)),
+                         ["[A] B (20261028).mp3", "[A] B (20261028).ttml", "[C] D (20261029).mp3"])
+        # もう一度開いて s → 止める
+        rc, out = self.run_setup("s\n")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("止めました", out)
+        self.assertFalse(os.path.exists(self.plist))
+        self.assertFalse(os.path.exists(os.path.join(self.state, "plist")))
+
+    def test_no_dropbox(self):
+        os.rmdir(self.dropbox)
+        rc, out = self.run_setup()
+        self.assertEqual(rc, 1)
+        self.assertIn("Dropbox のフォルダが見つかりません", out)
+        self.assertFalse(os.path.exists(self.plist))
+
+
 class CollectTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,6 +172,7 @@ class CollectTest(unittest.TestCase):
         self.add(3, 2, "第95集 汉字/拼音?", "2026-10-25", TODAY + " 00:02", ttml=False)  # 字幕がまだない
         self.add(4, 1, "Old audio, old transcript today?", "2026-10-21", YESTERDAY + " 10:00", ttml=False)
         out = self.run_app()
+        self.assertEqual(sorted(os.listdir(self.lib)), [".collected.json"] + self.files())  # 途中の名前が残らない
         self.assertEqual(self.files(), [
             "[Business Daily] Iran’s economy Counting the cost of war (20260101).mp3",
             "[Business Daily] Iran’s economy Counting the cost of war (20260101).ttml",
