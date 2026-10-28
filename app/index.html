@@ -14,13 +14,46 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
 <script>
-  // アプリ本体（モジュール）が読めない・止まったときに、理由を画面に出す（iPhone では開発者ツールが見られないため）
+  // アプリ本体（モジュール）が読めない・止まったときに、理由を画面に出す（iPhone では開発者ツールが見られないため）。
+  // 古いオフライン用の保存（Service Worker とキャッシュ）が原因のことが多いので、一度だけ自動で消して読み直す。
+  // 教材（IndexedDB）・設定・再生位置（localStorage）は消さない。
   (function () {
+    var RESET_KEY = "listening.autoReset";
     function report(msg) {
       var el = document.getElementById("appError");
       if (!el) return setTimeout(function () { report(msg); }, 100);
       el.hidden = false;
-      el.textContent += (el.textContent ? "\n" : "") + msg;
+      var line = document.createElement("div");
+      line.textContent = msg;
+      el.appendChild(line);
+      if (!document.getElementById("resetApp")) {
+        var b = document.createElement("button");
+        b.id = "resetApp";
+        b.type = "button";
+        b.className = "button outline";
+        b.textContent = "Reload the app";
+        b.onclick = function () { resetApp(); };
+        el.appendChild(b);
+      }
+    }
+    function resetApp() {
+      try { sessionStorage.setItem(RESET_KEY, "1"); } catch (e) { /* 保存できなくても続ける */ }
+      var jobs = [];
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+          return Promise.all(rs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      if (window.caches) {
+        jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }));
+      }
+      Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+    }
+    function failed(msg) {
+      report(msg);
+      var already = false;
+      try { already = sessionStorage.getItem(RESET_KEY) === "1"; } catch (e) { already = true; }
+      if (!already) { report("Clearing the saved app files and reloading…"); resetApp(); }
     }
     window.addEventListener("error", function (e) {
       report("Error: " + (e.message || e.type) + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
@@ -28,16 +61,23 @@
     window.addEventListener("unhandledrejection", function (e) {
       report("Error: " + (e.reason && e.reason.message || e.reason));
     });
+    window.__appResetKey = RESET_KEY;
+    // 本体を読み込む。読めなかったファイルの理由も出る
+    window.addEventListener("DOMContentLoaded", function () {
+      import("./app.js").catch(function (err) {
+        failed("Could not load the app: " + (err && err.message || err));
+      });
+    });
     setTimeout(function () {
-      if (!window.__appStarted) report("The app did not start on this browser (" + navigator.userAgent + ")");
-    }, 5000);
+      if (!window.__appStarted) failed("The app did not start on this browser (" + navigator.userAgent + ")");
+    }, 8000);
   })();
 </script>
 </head>
 <body>
 <main id="setup" class="screen">
   <header class="bar"><h1>Listening Mode</h1></header>
-  <p id="appError" class="status error" role="alert" hidden></p>
+  <div id="appError" class="status error" role="alert" hidden></div>
 
   <section>
     <h2>Library</h2>
@@ -109,6 +149,5 @@
   <audio id="audio" playsinline webkit-playsinline preload="auto"></audio>
 </main>
 
-<script type="module" src="app.js"></script>
 </body>
 </html>

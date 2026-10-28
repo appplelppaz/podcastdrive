@@ -271,9 +271,21 @@ async function openMaterial(page, title, button) {
   const broken = await bctx.newPage();
   await broken.route("**/material.js", (r) => r.fulfill({ contentType: "text/javascript", body: "export const x = ;" }));
   await broken.goto(BASE);
-  await broken.waitForFunction(() => !document.getElementById("appError").hidden, null, { timeout: 10000 });
-  const shown = await broken.textContent("#appError");
-  check("本体が読めないときは画面に理由を表示", /Error|did not start/.test(shown), shown.slice(0, 120));
+  // 1回目は古い保存を消して自動で読み直し、2回目に理由とボタンを出す
+  const waitShown = async () => {
+    for (let k = 0; k < 40; k++) {
+      try {
+        const ok = await broken.evaluate(() => sessionStorage.getItem("listening.autoReset") === "1" &&
+          !!document.getElementById("resetApp") && document.getElementById("appError").textContent.length > 0);
+        if (ok) return;
+      } catch { /* 読み直しの最中 */ }
+      await sleep(250);
+    }
+  };
+  await waitShown();
+  const shown = await broken.textContent("#appError").catch(() => "");
+  check("本体が読めないときは画面に理由を表示し、一度だけ自動で読み直す", /Error|did not start|Could not load/.test(shown) &&
+    (await broken.evaluate(() => sessionStorage.getItem("listening.autoReset"))) === "1", shown.slice(0, 120));
   await bctx.close();
 
   await browser.close();

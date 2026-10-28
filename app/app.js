@@ -458,3 +458,4 @@ if (params.get("import")) {
 }
 show("setup");
 window.__appStarted = true; // index.html の起動確認用
+try { sessionStorage.removeItem(window.__appResetKey || "listening.autoReset"); } catch { /* なくてもよい */ }
