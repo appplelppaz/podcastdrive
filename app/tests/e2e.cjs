@@ -98,7 +98,8 @@ async function openMaterial(page, title, button) {
   check("読み上げ中は元音声が止まっている（重なりなし）", speech.every((s) => s.audioPaused) && !(await page.evaluate(() => window.__overlap)), speech.length + "件");
   check("日本語は日本語の声（高品質版を優先）", speech.filter((s) => s.lang === "ja-JP").every((s) => s.voice === "Kyoko (Enhanced)"));
   check("英語の語句は英語の声", speech.some((s) => s.lang === "en-US" && s.voice === "Samantha"), speech.filter((s) => s.lang === "en-US").map((s) => s.text).join(", "));
-  check("語彙の読み上げ「ここでは…という意味です」", speech.some((s) => /^ここでは、.+、という意味です。$/.test(s.text)));
+  // 語の後は意味だけを読む（「ここでは、…という意味です」は付けない）
+  check("語彙の読み上げは意味だけ", !speech.some((s) => /ここでは|という意味です/.test(s.text)) && speech.some((s, i) => i > 0 && speech[i - 1].lang.startsWith("en") && s.lang.startsWith("ja") && /。$/.test(s.text)));
 
   // ---- 回数・速度
   await page.evaluate(() => window.__engine.updateSettings({ ...window.__engine.settings, firstRepeats: 2, secondRepeats: 3, originalRate: 0.7, translationRate: 1.3 }));
@@ -214,6 +215,28 @@ async function openMaterial(page, title, button) {
   await openMaterial(page, "Legacy blob row", ".start");
   await waitFor(page, () => window.__engine.log.some((l) => l.kind === "original") && !document.getElementById("audio").paused);
   check("以前の版で保存した教材も再生できる", true);
+  await page.click("#back");
+
+  // ---- 元音声と読み上げの切り替え直後に iPhone が送ってくる停止では止まらない。それ以外の停止は中断
+  await openMaterial(page, titleB, ".from-start");
+  await waitFor(page, () => window.__engine.step.kind === "original" && !document.getElementById("audio").paused);
+  await page.evaluate(() => document.getElementById("audio").pause()); // 切り替え直後の停止（iPhone の動きの代わり）
+  await sleep(600);
+  const afterSwitch = await page.evaluate(() => ({ playing: window.__engine.playing, audio: !document.getElementById("audio").paused,
+    ignored: window.__engine.log.some((l) => l.kind === "ignored-pause") }));
+  check("切り替え直後の音声停止では止まらず続ける", afterSwitch.playing && afterSwitch.audio && afterSwitch.ignored, JSON.stringify(afterSwitch));
+  await waitFor(page, () => window.__engine.step.kind === "speech" && window.__engine.settling());
+  await page.evaluate(() => window.__systemPause());
+  check("切り替え直後のロック画面の一時停止は無視", await page.evaluate(() => window.__engine.playing));
+  await waitFor(page, () => window.__engine.step.kind === "original" && window.__engine.playing &&
+    performance.now() - window.__engine.stepStartedAt > 1600 && !document.getElementById("audio").paused);
+  await page.evaluate(() => document.getElementById("audio").pause()); // 再生中の本当の中断（電話など）
+  await waitFor(page, () => !window.__engine.playing);
+  check("再生の途中の停止は中断として止まる", /Interrupted/.test(await page.textContent("#playerStatus")));
+  await page.evaluate(() => window.__engine.play());
+  await waitFor(page, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling());
+  await page.evaluate(() => window.__systemPause());
+  check("切り替えから時間がたてばロック画面で一時停止できる", await page.evaluate(() => !window.__engine.playing));
   await page.click("#back");
 
   // ---- アプリ本体が読めないとき（古い Safari の構文エラーなど）は理由を画面に出す

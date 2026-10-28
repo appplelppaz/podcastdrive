@@ -5,7 +5,7 @@
 // （tools/tests/test_listening.py の MaterialParityTest で突き合わせる）。
 //   - 時刻は JSON の begin/end を使い、TTML の単語の境界が 60ms 以内にあるときだけそれに合わせる
 //   - 文の途中で切れた区間は次とまとめる。訂正データに文ごとの訳があり TTML の文境界と合うときだけ分ける
-//   - 読み上げ文: 訳、語彙（最大2つ「語 → ここでは…という意味です」）、文法・背景（1文）。記号は話し言葉に直す
+//   - 読み上げ文: 訳、語彙（最大2つ「語 → この文での意味」）、文法・背景（1文）。記号は話し言葉に直す
 // DOM を使わないので、ブラウザでも Node でも動く。
 
 const LATIN_LANGS = new Set(["en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv"]);
@@ -342,7 +342,7 @@ function autoListening(seg) {
 
 const vocabRuns = (item, src, tgt) => [
   [src, item.term],
-  [tgt, `ここでは、${item.meaning.replace(/。+$/, "")}、という意味です。`],
+  [tgt, item.meaning.replace(/。+$/, "") + "。"],
   ...(item.note ? splitRuns(item.note, src, tgt) : []),
 ];
 

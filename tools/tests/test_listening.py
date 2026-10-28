@@ -145,7 +145,7 @@ class SpeechTest(unittest.TestCase):
         self.assertEqual(kinds, [("original", None, None), ("cue", "translation", None), ("speech", "translation", "ja"),
                                  ("cue", "vocab", None), ("speech", "vocab", "en"), ("speech", "vocab", "ja"),
                                  ("cue", "again", None), ("original", None, None)])
-        self.assertEqual(parts[5]["text"], "ここでは、厳しい状況にある、という意味です。")
+        self.assertEqual(parts[5]["text"], "厳しい状況にある。")
 
 
 class ConvertTest(TempDir):
