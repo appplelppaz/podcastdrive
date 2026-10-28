@@ -8,20 +8,15 @@ trap 'kill "${SERVER:-0}" 2>/dev/null || true' EXIT
 
 A="[Demo Radio] Morning market check (20260101)"
 B="[Demo Radio] Weather and travel (20260102)"
-# 出力は「エピソード名 (日付)」で名付けられる
-LA="Morning market check (2026-01-01)"
-LB="Weather and travel (2026-01-02)"
 python3 "$ROOT/tools/tests/make_fixture.py" "$WORK/materials" >/dev/null
-for n in "$A" "$B"; do
-  python3 "$ROOT/tools/prepare_listening.py" "$WORK/materials/$n.json" --engine espeak-ng >/dev/null
-done
-# 簡易モード用（再生用音声の参照がない .listening.json）
-python3 "$ROOT/tools/build_listening.py" "$WORK/materials/$B.json" --out "$WORK/b-direct.listening.json" --fresh >/dev/null
+# 以前の方式（準備済みの .listening.json ＋ .listening.m4a）の確認用
+python3 "$ROOT/tools/prepare_listening.py" "$WORK/materials/$A.json" --engine espeak-ng >/dev/null
+# Playwright は「[]」を含むパスのファイルを選べないので、同じ内容の短い名前のコピーを使う
 mkdir -p "$WORK/ascii"
-cp "$WORK/materials/$LA.listening.json" "$WORK/ascii/a.listening.json"
-cp "$WORK/materials/$LA.listening.m4a" "$WORK/ascii/a.listening.m4a"
-cp "$WORK/b-direct.listening.json" "$WORK/ascii/b-direct.listening.json"
-cp "$WORK/materials/$B.mp3" "$WORK/ascii/b.mp3"
+for x in json ttml mp3; do
+  cp "$WORK/materials/$A.$x" "$WORK/ascii/a.$x"
+  cp "$WORK/materials/$B.$x" "$WORK/ascii/b.$x"
+done
 
 # アプリと教材を同じサーバーから配る
 mkdir -p "$WORK/site"

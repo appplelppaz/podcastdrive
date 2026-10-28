@@ -21,7 +21,8 @@
   <section>
     <h2>Library</h2>
     <ul id="library" class="library"></ul>
-    <p id="libraryEmpty" class="hint">No materials yet. Select a <code>.listening.json</code> file together with its <code>.listening.m4a</code> audio.</p>
+    <p id="libraryEmpty" class="hint">No materials yet.</p>
+    <p class="hint">Select an episode's <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together (and its <code>.fix.json</code> if there is one). You can select several episodes at once.</p>
     <label class="button outline file">
       Add material
       <input id="fileInput" type="file" multiple accept=".json,.m4a,.mp3,.wav,audio/*,application/json">
@@ -46,6 +47,7 @@
     <div class="row"><label for="grammar">Grammar &amp; background</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
     <div class="row"><label for="cues">Voice cues</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
     <div class="row"><label for="repeatEpisode">Repeat episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
+    <div class="row"><label for="keepAwake">Keep screen on while playing</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
     <div class="row"><label for="carPrevious">Car / lock-screen “previous”</label>
       <select id="carPrevious" data-key="carPrevious">
         <option value="previous">Previous sentence</option>
@@ -56,7 +58,7 @@
       <button id="exportSettings" class="link" type="button">Export settings</button>
     </div>
   </section>
-  <p class="hint center">Plays automatically to the end. For lock-screen playback, use materials imported with their <code>.listening.m4a</code>.</p>
+  <p class="hint center">Plays automatically to the end. Translations and notes are read with your device's voice; keep the screen on for reliable playback.</p>
 </main>
 
 <main id="player" class="screen player" hidden>

@@ -1,5 +1,7 @@
-// 教材（.listening.json と音声）を端末内の IndexedDB に保存する。オフラインで再生できる。
+// 教材（変換したデータと音声）を端末内の IndexedDB に保存する。オフラインで再生できる。
 // 設定と学習位置は localStorage に保存する。
+
+import { buildMaterial } from "./material.js";
 
 const DB_NAME = "listening-mode";
 const STORE = "materials";
@@ -23,10 +25,9 @@ async function tx(mode, fn) {
   });
 }
 
+// 一覧用。音声（Blob）は読み込まずに参照だけを持つので、たくさんあっても軽い。
 export const listMaterials = () =>
-  tx("readonly", (s) => s.getAll()).then((rows) =>
-    rows.map(({ id, title, channel, mode, segments, addedAt }) => ({ id, title, channel, mode, segments, addedAt }))
-      .sort((a, b) => b.addedAt - a.addedAt));
+  tx("readonly", (s) => s.getAll()).then((rows) => rows.sort((a, b) => b.addedAt - a.addedAt));
 export const getMaterial = (id) => tx("readonly", (s) => s.get(id));
 export const putMaterial = (row) => tx("readwrite", (s) => s.put(row));
 export const deleteMaterial = (id) => tx("readwrite", (s) => s.delete(id));
@@ -36,31 +37,109 @@ export async function sha256(blob) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// 選んだファイル群から教材を作る。
-// .listening.json と、そこに記録された再生用音声（スプライト）か元音声の組を探す。
-export async function importFiles(fileList) {
-  const files = [...fileList];
-  const jsonFile = files.find((f) => f.name.endsWith(".listening.json")) || files.find((f) => f.name.endsWith(".json"));
-  if (!jsonFile) throw new Error("Select the .listening.json file together with its audio");
-  const doc = JSON.parse(await jsonFile.text());
-  if (doc.format !== "podcast-listening") {
-    throw new Error("This is not a listening-mode JSON. Create one with tools/prepare_listening.py");
-  }
-  const audios = files.filter((f) => f !== jsonFile);
-  return importDoc(doc, async (name) => audios.find((f) => f.name === name) ||
-    audios.find((f) => normalizeName(f.name) === normalizeName(name)) || null,
-  audios.length === 1 ? audios[0] : null);
+// 選んだファイル群から教材を作る。複数の回をまとめて選べる。
+// 同じ名前のファイルを1つの教材として組にする:
+//   既存の教材   元の名前.mp3 ＋ 元の名前.json（＋ 元の名前.ttml ＋ 元の名前.fix.json）
+//   準備済みの教材 エピソード名.listening.json ＋ エピソード名.listening.m4a
+// 返り値: { imported: [行], errors: [文] }
+const AUDIO_EXT = /\.(mp3|m4a|aac|wav)$/i;
+
+function kindOf(name) {
+  if (/\.listening\.json$/i.test(name)) return "listening";
+  if (/\.fix\.json$/i.test(name)) return "fix";
+  if (/\.(retranslated|listening-authored)\.json$/i.test(name)) return null; // 準備ツールの中間ファイル
+  if (/\.json$/i.test(name)) return "json";
+  if (/\.ttml$/i.test(name)) return "ttml";
+  if (AUDIO_EXT.test(name)) return "audio";
+  return null;
 }
 
-// URL から取り込む（音声は JSON と同じ場所にあるものとする）
+const stemOf = (name) => normalizeName(name.replace(/(\.listening|\.fix)?\.(json|ttml|mp3|m4a|aac|wav)$/i, ""));
+
+export async function importFiles(fileList) {
+  const groups = new Map();
+  const errors = [];
+  for (const f of fileList) {
+    const kind = kindOf(f.name);
+    if (!kind) continue;
+    const key = stemOf(f.name);
+    if (!groups.has(key)) groups.set(key, {});
+    groups.get(key)[kind] = f;
+  }
+  // 名前が違っていても、JSON と音声が1つずつだけなら組にする
+  const all = [...groups.values()];
+  const jsons = all.filter((g) => g.json), audios = all.filter((g) => g.audio);
+  if (jsons.length === 1 && audios.length === 1 && !jsons[0].audio) {
+    Object.assign(jsons[0], { audio: audios[0].audio }, audios[0].ttml && !jsons[0].ttml ? { ttml: audios[0].ttml } : {});
+    groups.delete([...groups.entries()].find(([, g]) => g === audios[0])[0]);
+  }
+  const imported = [];
+  for (const g of groups.values()) {
+    const label = (g.json || g.listening || g.audio || g.ttml || g.fix).name;
+    try {
+      if (g.listening) {
+        const doc = JSON.parse(await g.listening.text());
+        imported.push(await importDoc(doc, async (name) => (g.audio && (g.audio.name === name || normalizeName(g.audio.name) === normalizeName(name)) ? g.audio : null), g.audio || null));
+      } else if (g.json && g.audio) {
+        imported.push(await importSources(g));
+      } else if (g.json || g.ttml || g.fix) {
+        errors.push(`${label}: also select the audio file (.mp3) with the same name`);
+      } else {
+        errors.push(`${label}: also select the JSON file with the same name`);
+      }
+    } catch (err) {
+      errors.push(`${label}: ${err.message}`);
+    }
+  }
+  if (!imported.length && !errors.length) errors.push("Select the episode's .mp3 and .json files (and .ttml if you have it)");
+  return { imported, errors };
+}
+
+// 既存の音声・JSON・原稿（TTML）・訳の訂正データをそのまま使う
+async function importSources(g) {
+  const json = JSON.parse(await g.json.text());
+  if (json.format === "podcast-listening") throw new Error("this is a prepared file; select it with its .listening.m4a");
+  const doc = buildMaterial({
+    json,
+    ttml: g.ttml ? await g.ttml.text() : undefined,
+    fix: g.fix ? JSON.parse(await g.fix.text()) : undefined,
+    name: g.json.name,
+  });
+  doc.sources.audio = g.audio.name;
+  const row = {
+    id: doc.materialId,
+    title: doc.episode || doc.title,
+    channel: doc.channel || "",
+    mode: "direct",
+    segments: doc.segments.length,
+    hasTtml: !!g.ttml,
+    translationMismatch: doc.translationMismatch,
+    addedAt: Date.now(),
+    doc,
+    audio: new Blob([await g.audio.arrayBuffer()], { type: g.audio.type || guessType(g.audio.name) }),
+  };
+  await putMaterial(row);
+  return row;
+}
+
+// URL から取り込む（音声・TTML・訂正データは JSON と同じ場所の同じ名前のものを探す）
 export async function importFromUrl(jsonUrl) {
   const res = await fetch(jsonUrl);
   if (!res.ok) throw new Error("Could not fetch JSON: " + res.status);
   const doc = await res.json();
-  return importDoc(doc, async (name) => {
-    const r = await fetch(new URL(encodeURIComponent(name).replace(/%2F/g, "/"), new URL(jsonUrl, location.href)));
+  const base = new URL(jsonUrl, location.href);
+  const fetchFile = async (name) => {
+    const r = await fetch(new URL(encodeURIComponent(name).replace(/%2F/g, "/"), base));
     return r.ok ? new File([await r.blob()], name, { type: r.headers.get("content-type") || "" }) : null;
-  });
+  };
+  if (doc.format === "podcast-listening") return importDoc(doc, fetchFile);
+  const name = decodeURIComponent(base.pathname.split("/").pop());
+  const stem = name.replace(/\.json$/i, "");
+  const audio = (await fetchFile(stem + ".mp3")) || (await fetchFile(stem + ".m4a"));
+  if (!audio) throw new Error("No audio next to " + name);
+  const g = { json: new File([JSON.stringify(doc)], name), audio,
+    ttml: await fetchFile(stem + ".ttml"), fix: await fetchFile(stem + ".fix.json") };
+  return importSources(g);
 }
 
 function normalizeName(n) {

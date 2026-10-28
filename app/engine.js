@@ -23,6 +23,7 @@ export const DEFAULTS = {
   cues: true,
   repeatEpisode: false,
   carPrevious: "previous", // 車・ロック画面の「前へ」: previous（前の文）/ restart（今の文を最初から）
+  keepAwake: true,         // 再生中は画面を消さない（アプリ側で使う）
 };
 
 export const LIMITS = {
@@ -163,28 +164,71 @@ class RangePlayer {
   }
 }
 
+// 端末の声の選び方: 同じ言語の声のうち、高品質版（拡張・プレミアム）と定番の声を優先する
+const LOCALES = { ja: "ja-JP", en: "en-US", es: "es-ES", fr: "fr-FR", de: "de-DE", it: "it-IT", zh: "zh-CN", ko: "ko-KR", pt: "pt-BR" };
+const PREFERRED_VOICES = {
+  ja: ["Kyoko", "O-Ren", "Otoya", "Hattori"],
+  en: ["Samantha", "Ava", "Zoe", "Daniel", "Karen", "Alex"],
+  es: ["Monica", "Mónica", "Paulina", "Jorge"],
+  fr: ["Thomas", "Amélie", "Amelie", "Audrey"],
+  zh: ["Tingting", "Ting-Ting", "Meijia", "Lili"],
+  de: ["Anna", "Petra"], it: ["Alice", "Federica"], ko: ["Yuna"],
+};
+
+export function pickVoice(lang, voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : []) {
+  const base = (lang || "").split(/[-_]/)[0].toLowerCase();
+  const cands = voices.filter((v) => v.lang.replace("_", "-").toLowerCase().split("-")[0] === base);
+  if (!cands.length) return null;
+  const preferred = PREFERRED_VOICES[base] || [];
+  const score = (v) => {
+    let s = 0;
+    if (/enhanced|premium|拡張|高品質/i.test(v.name)) s += 20;
+    const i = preferred.findIndex((p) => v.name.includes(p));
+    if (i >= 0) s += 10 - i;
+    if (v.lang.replace("_", "-").toLowerCase() === (LOCALES[base] || "").toLowerCase()) s += 2;
+    if (v.localService) s += 1;
+    return s;
+  };
+  return cands.slice().sort((a, b) => score(b) - score(a))[0];
+}
+
 function speakWithSynthesis(text, lang, rate) {
   const synth = window.speechSynthesis;
+  let finishNow = null;
   return {
     promise: new Promise((resolve) => {
       if (!synth) return resolve("unsupported");
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = lang === "ja" ? "ja-JP" : lang;
-      const voices = synth.getVoices();
-      const v = voices.find((x) => x.lang.replace("_", "-").toLowerCase().startsWith(u.lang.toLowerCase())) ||
-        voices.find((x) => x.lang.toLowerCase().startsWith(lang.toLowerCase()));
-      if (v) u.voice = v;
+      const base = (lang || "").split(/[-_]/)[0].toLowerCase();
+      u.lang = LOCALES[base] || lang;
+      const v = pickVoice(lang);
+      if (v) {
+        try { u.voice = v; u.lang = v.lang.replace("_", "-"); } catch { /* 声を選べなければ言語の既定の声で読む */ }
+      }
       u.rate = rate;
       let done = false;
       const finish = (r) => { if (!done) { done = true; clearTimeout(t); resolve(r); } };
+      finishNow = finish;
       u.onend = () => finish("end");
-      u.onerror = (e) => finish("error:" + e.error);
+      u.onerror = (e) => finish(e.error === "interrupted" || e.error === "canceled" ? "cancel" : "error:" + e.error);
       // onend が来ない環境への保険
-      const t = setTimeout(() => finish("timeout"), (text.length / (lang === "ja" ? 6 : 12) / rate + 4) * 1000);
+      const t = setTimeout(() => finish("timeout"), ([...text].length / (base === "ja" || base === "zh" ? 6 : 12) / rate + 4) * 1000);
       synth.speak(u);
     }),
-    cancel: () => synth && synth.cancel(),
+    cancel: () => { if (synth) synth.cancel(); if (finishNow) finishNow("cancel"); },
   };
+}
+
+// iPhone では、最初の音声合成をタップの中で始める必要がある。タップの処理の中で呼ぶ。
+// （音声の再生は、タップの処理の中で engine.play() を呼べば始められる）
+export function unlockSpeech() {
+  try {
+    if (window.speechSynthesis && !window.speechSynthesis.speaking) {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    }
+  } catch { /* 未対応 */ }
 }
 
 // ---------------------------------------------------------------- エンジン
