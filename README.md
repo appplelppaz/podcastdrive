@@ -28,8 +28,12 @@ python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinv
 
 同じフォルダに次の2つができます。元ファイルは変更しません。
 
-- `元の名前.listening.json` — 聞き流し専用のデータ（下記）
-- `元の名前.listening.m4a` — 再生用音声。元音声の各区間と、訳・解説の合成音声を1本にまとめたもの
+- `エピソード名 (日付).listening.json` — 聞き流し専用のデータ（下記）
+- `エピソード名 (日付).listening.m4a` — 再生用音声。元音声の各区間と、訳・解説の合成音声を1本にまとめたもの
+
+ファイル名はエピソード名から始まるので、iPhone のファイル選択画面で見つけやすくなっています
+（例：`Iran's economy - Counting the cost of war (2026-01-01).listening.m4a`）。番組名はフォルダで分かれているので名前には入れません。
+エピソード名の「:」は「 - 」に置き換えます。`.m4a` のタイトル情報にもエピソード名を入れます。
 
 2回目以降は、合成音声をキャッシュ（`.listening_cache/`）から使い回し、文章が変わった部分だけ作り直します。
 回数・速度・無音・オン/オフはアプリ側で変えるので、作り直しは不要です。
@@ -37,7 +41,7 @@ python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinv
 既に `.listening.json` がある教材は、音声だけを作ります。
 
 ```bash
-python3 tools/render_listening_audio.py "…/元の名前.listening.json"
+python3 tools/render_listening_audio.py "…/エピソード名 (日付).listening.json"
 ```
 
 **訳の訂正データ（`元の名前.fix.json`）がある教材**：既存JSONの訳が音声とずれていた回のために、訂正データを用意しています。
@@ -48,7 +52,7 @@ python3 tools/apply_fix.py "英語/Business Daily/[Business Daily] Iran’s econ
 ```
 
 ```bash
-python3 tools/render_listening_audio.py "英語/Business Daily/[Business Daily] Iran’s economy_ Counting the cost of war (20260101).listening.json"
+python3 tools/render_listening_audio.py "英語/Business Daily/Iran's economy - Counting the cost of war (2026-01-01).listening.json"
 ```
 
 声を変えるときは `--voice ja=Otoya --voice en=Daniel` を付けます。
@@ -96,8 +100,8 @@ Mac 以外では `--engine openjtalk`（`pip install pyopenjtalk-plus` と espea
 普通の音楽・ポッドキャストアプリで聞けます。アプリの **Export settings** で保存した設定も使えます。
 
 ```bash
-python3 tools/export_learning_track.py "…/元の名前.listening.json" --settings listening-settings.json
-python3 tools/export_learning_track.py "…/元の名前.listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
+python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --settings listening-settings.json
+python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
 ```
 
 速度ごとの音声をキャッシュするので、回数・無音・オン/オフを変えた書き出しは数秒で終わります。
@@ -111,7 +115,7 @@ python3 tools/export_learning_track.py "…/元の名前.listening.json" --first
 
 公開されるのはアプリ本体だけで、教材は含みません。教材は各端末に取り込みます。
 
-## 専用JSON（`元の名前.listening.json`）
+## 専用JSON（`エピソード名 (日付).listening.json`）
 
 | キー | 内容 |
 | --- | --- |

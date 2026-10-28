@@ -5,7 +5,7 @@
 
 同じフォルダの「元の名前.fix.json」を読み、次を書き出す（元のJSONは変更しない）。
 - 元の名前.retranslated.json   既存と同じ形式の訂正版（translation・words・grammar を差し替え）
-- 元の名前.listening.json      聞き流し用（訂正データの「聞くための解説」入り）
+- エピソード名 (日付).listening.json  聞き流し用（訂正データの「聞くための解説」入り）
 
 訂正データの形式:
   {"format": "podcast-listening-fix", "formatVersion": 1, "base": {"file": "…", "sha256": "…"}, "note": "…",
@@ -73,7 +73,7 @@ def apply(json_path, fix_path):
     with open(authored_path, "w", encoding="utf-8") as f:
         json.dump({"segments": authored}, f, ensure_ascii=False, indent=1)
 
-    out = convert.listening_path_for(json_path)
+    out = convert.listening_path_for(json_path, orig.get("metadata", {}))
     previous = None
     if os.path.exists(out):
         with open(out, encoding="utf-8") as f:

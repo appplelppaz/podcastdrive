@@ -1,4 +1,4 @@
-"""既存の教材JSON（＋TTML・音声）から「元の名前.listening.json」を作る。
+"""既存の教材JSON（＋TTML・音声）から「エピソード名 (日付).listening.json」を作る。
 
 元ファイルは変更しない。既存の .listening.json があれば、作者による解説（source="authored"）と
 事前生成した音声の参照を引き継ぎ、原文・訳が変わった区間だけ作り直す。
@@ -40,8 +40,31 @@ def find_sibling(json_path, exts):
     return None
 
 
-def listening_path_for(json_path):
-    return os.path.join(os.path.dirname(json_path), base_name(json_path) + ".listening.json")
+def episode_stem(meta, json_path):
+    """出力ファイル名の幹。エピソード名を先頭にして見つけやすくする。例: "Iran's economy - Counting the cost of war (2026-01-01)"
+
+    番組名はフォルダで分かれているので入れない。日付は同名のエピソードを区別するために付ける。
+    """
+    base = base_name(json_path)
+    m = re.match(r"^\[(.+?)\]\s+(.+?)\s+\((\d{8})\)$", base)
+    episode = (meta.get("episode") or (m.group(2) if m else "") or base).strip()
+    date = (meta.get("publishDate") or "").strip()
+    if not date and m:
+        date = "%s-%s-%s" % (m.group(3)[:4], m.group(3)[4:6], m.group(3)[6:])
+    name = re.sub(r"\s*:\s*", " - ", episode)          # Mac・Drive で使えない「:」
+    name = re.sub(r'[\\/]', "-", name)
+    name = re.sub(r'[?*"<>|\x00-\x1f]', "", name)
+    name = re.sub(r"\s+", " ", name).strip(" .-")[:120] or base
+    return "%s (%s)" % (name, date) if date else name
+
+
+def listening_path_for(json_path, meta=None):
+    """「エピソード名 (日付).listening.json」。元のJSONと同じフォルダに置く。"""
+    if meta is None:
+        with open(json_path, encoding="utf-8") as f:
+            raw = json.load(f)
+        meta = raw.get("metadata", {}) if isinstance(raw, dict) else {}
+    return os.path.join(os.path.dirname(json_path), episode_stem(meta, json_path) + ".listening.json")
 
 
 def material_id(meta, json_path):
@@ -347,11 +370,11 @@ def write_json(path, doc):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="既存JSON → 元の名前.listening.json")
+    p = argparse.ArgumentParser(description="既存JSON → エピソード名 (日付).listening.json")
     p.add_argument("json", help="既存の教材JSON")
     p.add_argument("--ttml", help="TTML（省略時は同名の .ttml を探す）")
     p.add_argument("--audio", help="元音声（省略時は同名の .mp3/.m4a を探す）")
-    p.add_argument("--out", help="出力先（省略時は 元の名前.listening.json）")
+    p.add_argument("--out", help="出力先（省略時は 同じフォルダの エピソード名 (日付).listening.json）")
     p.add_argument("--authored", help="聞くための解説（作者による）JSON")
     p.add_argument("--no-merge", action="store_true", help="文の途中で切れた区間をまとめない")
     p.add_argument("--fresh", action="store_true", help="既存の .listening.json を引き継がない")

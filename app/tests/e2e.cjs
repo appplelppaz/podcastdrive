@@ -5,8 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const [DIR, BASE] = process.argv.slice(2);
-const A = "[Demo Radio] Morning market check (20260101)";
-const B = "[Demo Radio] Weather and travel (20260102)";
+const B = "Weather and travel (2026-01-02)"; // .listening.json はエピソード名 (日付) で名付けられる
 const results = [];
 const check = (name, cond, info = "") => {
   results.push(!!cond);

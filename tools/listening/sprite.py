@@ -168,7 +168,10 @@ def build(listening_path, audio_path=None, engine_name=None, voices=None, fmt="m
     write_wav(raw, out)
     codec = ["-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart"] if fmt == "m4a" \
         else ["-c:a", "libmp3lame", "-b:a", "64k", "-write_xing", "0"]
-    subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", raw] + codec
+    # 音楽アプリやファイル一覧でもエピソード名がわかるように、タイトル情報を入れる
+    tags = ["-metadata", "title=%s" % (doc.get("episode") or doc.get("title", "")),
+            "-metadata", "artist=%s" % doc.get("channel", ""), "-metadata", "album=Listening Mode"]
+    subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", raw] + codec + tags
                    + ["-f", "mp4" if fmt == "m4a" else "mp3", sprite_path + ".part"], check=True)
     os.replace(sprite_path + ".part", sprite_path)
     os.remove(raw)
@@ -210,7 +213,7 @@ def parse_voices(items):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=".listening.json から再生用音声を作る")
-    p.add_argument("listening", help="元の名前.listening.json")
+    p.add_argument("listening", help="エピソード名 (日付).listening.json")
     p.add_argument("--audio", help="元音声（省略時は同じフォルダの元ファイル）")
     p.add_argument("--engine", choices=["say", "openjtalk", "espeak-ng"], help="音声合成（既定: say があれば say）")
     p.add_argument("--voice", action="append", help="言語=声 例: ja=Kyoko en=Daniel")
