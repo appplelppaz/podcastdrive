@@ -360,5 +360,26 @@ console.log(JSON.stringify(r));""" % json.dumps("file://" + os.path.join(APP, "e
         self.assertEqual(js, py)
 
 
+class OldSafariSyntaxTest(unittest.TestCase):
+    """iOS 16.4 より前の Safari で構文エラーになる書き方を、アプリで使っていないこと。
+
+    1か所でもあるとモジュールの読み込みが失敗し、ファイルを選んでも何も起きなくなる。
+    """
+
+    def test_no_regex_lookbehind(self):
+        import re
+        app = os.path.join(HERE, "..", "..", "app")
+        found = []
+        for name in sorted(os.listdir(app)):
+            if not name.endswith(".js"):
+                continue
+            with open(os.path.join(app, name), encoding="utf-8") as f:
+                for n, line in enumerate(f, 1):
+                    code = line.split("//")[0]
+                    if re.search(r"\(\?<[=!]", code):
+                        found.append("%s:%d" % (name, n))
+        self.assertEqual(found, [])
+
+
 if __name__ == "__main__":
     unittest.main()
