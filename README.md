@@ -105,6 +105,16 @@ Claude のスキルで、Language Drill とこのアプリの両方で使える 
 - 直したら `python3 skills/build.py` で共通スクリプトを各スキルへ写し、`skills/dist/*.skill` を作ります（claude.ai に入れるファイル）。
 - 確認: `python3 -m unittest skills/tests/test_skills.py`
 
+## Mac で ChatGPT 用に集める（`mac/`）
+
+`PodcastsChatGPTに集める.command`（`python3 mac/build_command.py` で作る）をデスクトップに置いてダブルクリックすると、
+Apple Podcasts で 2026年10月28日以降にダウンロードした回の音声と字幕（TTML）を
+`~/Desktop/Public/Podcasts/PodcastsChatGPT` にコピーします（元のファイルはそのまま）。
+初回にデスクトップへ `PodcastsChatGPT` フォルダのショートカットを作ります。
+一度集めた回は `.collected.json` に記録し、集めたファイルを移した後も二度はコピーしません。
+字幕がまだない回は音声だけをコピーし、字幕ができたら次の実行で足します。
+ターミナルにフルディスクアクセスが必要です。確認: `python3 -m unittest mac/test_collect.py`
+
 ## アプリの置き場所
 
 アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。
