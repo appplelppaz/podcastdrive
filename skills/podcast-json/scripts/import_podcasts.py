@@ -116,7 +116,9 @@ def fetch_episodes(query=None):
     # トランスクリプト識別子（存在する列だけ COALESCE）
     ti_cols = [c for c in ("ZTRANSCRIPTIDENTIFIER", "ZFREETRANSCRIPTIDENTIFIER",
                            "ZENTITLEDTRANSCRIPTIDENTIFIER") if c in ep_cols]
-    ti_expr = ("COALESCE(" + ", ".join(f"e.{c}" for c in ti_cols) + ")") if ti_cols else "NULL"
+    # COALESCE は2つ以上のときだけ使える
+    ti_expr = ("COALESCE(" + ", ".join(f"e.{c}" for c in ti_cols) + ")") if len(ti_cols) > 1 \
+        else (f"e.{ti_cols[0]}" if ti_cols else "NULL")
 
     if not (c_title and c_asset and c_pod and c_pod_title):
         print(json.dumps({"error": "Unexpected DB schema"}))
@@ -173,7 +175,8 @@ def find_ttml(ep) -> Path | None:
         if base.exists():
             return base
         parent = (TTML_ROOT / ti).parent
-        if parent.exists():
+        # 識別子がフォルダを含むときだけ、そのフォルダの字幕を使う（TTML 置き場の直下を探すと別の回の字幕を拾う）
+        if parent != TTML_ROOT and parent.exists():
             hits = sorted(parent.glob("*.ttml"))
             if hits:
                 return hits[0]
