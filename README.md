@@ -109,7 +109,7 @@ Claude のスキルで、Language Drill とこのアプリの両方で使える 
 
 `PodcastsChatGPTに集める.command`（`python3 mac/build_command.py` で作る）をデスクトップに置いてダブルクリックすると、
 Apple Podcasts で 2026年10月28日以降にダウンロードした回の音声と字幕（TTML）を
-`~/Desktop/Public/Podcasts/PodcastsChatGPT` にコピーします（元のファイルはそのまま）。
+`~/Desktop/Public/PodcastsChatGPT` にコピーします（元のファイルはそのまま）。
 初回にデスクトップへ `PodcastsChatGPT` フォルダのショートカットを作ります。
 一度集めた回は `.collected.json` に記録し、集めたファイルを移した後も二度はコピーしません。
 字幕がまだない回は音声だけをコピーし、字幕ができたら次の実行で足します。

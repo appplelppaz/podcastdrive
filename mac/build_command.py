@@ -12,7 +12,7 @@ NAME = "PodcastsChatGPTに集める.command"
 
 HEADER = """#!/bin/bash
 # Apple Podcasts でダウンロードした音声と字幕（TTML）を
-# ~/Desktop/Public/Podcasts/PodcastsChatGPT に集める。ダブルクリックで動く。
+# ~/Desktop/Public/PodcastsChatGPT に集める。ダブルクリックで動く。
 cd "$HOME" || exit 1
 PY="$(command -v python3)"
 if [ -z "$PY" ]; then

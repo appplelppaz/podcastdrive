@@ -22,7 +22,8 @@ class CollectTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         t = self.tmp.name
         self.group = os.path.join(t, "group")
-        self.lib = os.path.join(t, "Desktop", "Public", "Podcasts")
+        self.public = os.path.join(t, "Desktop", "Public")
+        self.lib = os.path.join(self.public, "PodcastsChatGPT")
         self.desktop = os.path.join(t, "Desktop")
         os.makedirs(os.path.join(self.group, "Documents"))
         os.makedirs(os.path.join(self.group, "Library", "Cache", "Assets", "TTML"))
@@ -57,13 +58,13 @@ class CollectTest(unittest.TestCase):
             f.write("<tt/>")
 
     def run_app(self):
-        env = dict(os.environ, PODCASTS_GROUP=self.group, PODCASTS_DIR=self.lib, DESKTOP_DIR=self.desktop, NO_OPEN="1")
+        env = dict(os.environ, PODCASTS_GROUP=self.group, PUBLIC_DIR=self.public, DESKTOP_DIR=self.desktop, NO_OPEN="1")
         r = subprocess.run([sys.executable, SCRIPT], capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout
 
     def files(self):
-        dest = os.path.join(self.lib, "PodcastsChatGPT")
+        dest = self.lib
         return sorted(f for f in os.listdir(dest) if not f.startswith("."))
 
     def test_collect(self):
@@ -78,7 +79,7 @@ class CollectTest(unittest.TestCase):
         ])
         self.assertIn("字幕がまだない回（1件", out)
         link = os.path.join(self.desktop, "PodcastsChatGPT")
-        self.assertTrue(os.path.islink(link) and os.path.samefile(link, os.path.join(self.lib, "PodcastsChatGPT")))
+        self.assertTrue(os.path.islink(link) and os.path.samefile(link, self.lib))
 
         # 2回目: 新しいものはない
         self.assertIn("字幕がまだない回（1件", self.run_app())
@@ -88,7 +89,7 @@ class CollectTest(unittest.TestCase):
         self.assertIn("字幕（TTML）をコピー（1件", out)
         self.assertIn("[TeaTime Chinese 茶歇中文] 第95集 汉字 拼音 (20261025).ttml", self.files())
         # 集めたファイルを移しても（会社へ送った後など）、もう一度はコピーしない
-        dest = os.path.join(self.lib, "PodcastsChatGPT")
+        dest = self.lib
         for f in self.files():
             os.remove(os.path.join(dest, f))
         self.assertIn("新しくダウンロードされた回はありませんでした", self.run_app())
@@ -96,9 +97,27 @@ class CollectTest(unittest.TestCase):
         with open(os.path.join(dest, ".collected.json"), encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)["episodes"]), 2)
 
+    def test_moves_old_folder(self):
+        old = os.path.join(self.public, "Podcasts", "PodcastsChatGPT")
+        os.makedirs(old)
+        with open(os.path.join(old, "[A] B (20261028).mp3"), "w") as f:
+            f.write("x")
+        with open(os.path.join(old, ".collected.json"), "w") as f:
+            json.dump({"since": "2026-10-28", "episodes": {"uuid-9": {"name": "[A] B (20261028)", "audio": "x", "ttml": "x"}}}, f)
+        os.makedirs(self.desktop, exist_ok=True)
+        os.symlink(old, os.path.join(self.desktop, "PodcastsChatGPT"))  # 以前の版のショートカット
+        out = self.run_app()
+        self.assertIn("2 個のファイルを移しました", out)
+        self.assertFalse(os.path.exists(old))
+        self.assertEqual(self.files(), ["[A] B (20261028).mp3"])
+        with open(os.path.join(self.lib, ".collected.json"), encoding="utf-8") as f:
+            self.assertIn("uuid-9", json.load(f)["episodes"])
+        link = os.path.join(self.desktop, "PodcastsChatGPT")
+        self.assertEqual(os.readlink(link), self.lib)
+
     def test_missing_library(self):
         os.remove(os.path.join(self.group, "Documents", "MTLibrary.sqlite"))
-        env = dict(os.environ, PODCASTS_GROUP=self.group, PODCASTS_DIR=self.lib, DESKTOP_DIR=self.desktop, NO_OPEN="1")
+        env = dict(os.environ, PODCASTS_GROUP=self.group, PUBLIC_DIR=self.public, DESKTOP_DIR=self.desktop, NO_OPEN="1")
         r = subprocess.run([sys.executable, SCRIPT], capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 1)
         self.assertIn("Apple Podcasts のライブラリが見つかりません", r.stdout)

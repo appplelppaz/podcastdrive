@@ -1,6 +1,6 @@
 """
 Apple Podcasts でダウンロードしたエピソードの音声と字幕（TTML）を、
-~/Desktop/Public/Podcasts/PodcastsChatGPT に集める（ChatGPT に JSON を作ってもらうため）。
+~/Desktop/Public/PodcastsChatGPT に集める（ChatGPT に JSON を作ってもらうため）。
 
 - 対象: 2026年10月28日以降に Mac にダウンロードされたエピソード（配信日ではなくダウンロードした日）。
 - コピーするだけ。Apple Podcasts の中のファイルも、既存のライブラリ（英語/中国語…）も変えない。
@@ -31,8 +31,9 @@ GROUP = Path(os.environ.get("PODCASTS_GROUP")
              or HOME / "Library/Group Containers/243LU875E5.groups.com.apple.podcasts")
 DB_PATH = GROUP / "Documents/MTLibrary.sqlite"
 TTML_ROOT = GROUP / "Library/Cache/Assets/TTML"
-LIBRARY = Path(os.environ.get("PODCASTS_DIR") or HOME / "Desktop/Public/Podcasts")
-DEST = LIBRARY / FOLDER_NAME
+PUBLIC = Path(os.environ.get("PUBLIC_DIR") or HOME / "Desktop/Public")
+DEST = PUBLIC / FOLDER_NAME                     # ~/Desktop/Public/PodcastsChatGPT
+OLD_DEST = PUBLIC / "Podcasts" / FOLDER_NAME    # 以前の版の集め先（あれば中身を移す）
 STATE = DEST / ".collected.json"
 DESKTOP = Path(os.environ.get("DESKTOP_DIR") or HOME / "Desktop")
 CORE_DATA_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -159,9 +160,28 @@ def save_state(state):
     os.replace(tmp, STATE)
 
 
+def move_old_folder():
+    """以前の版の集め先（Podcasts の中）にあるファイルと記録を、新しい集め先へ移す。"""
+    if not OLD_DEST.is_dir() or OLD_DEST.is_symlink():
+        return 0
+    moved = 0
+    for f in sorted(OLD_DEST.iterdir()):
+        target = DEST / f.name
+        if not target.exists():
+            shutil.move(str(f), str(target))
+            moved += 1
+    try:
+        OLD_DEST.rmdir()  # 空になったときだけ消える
+    except OSError:
+        pass
+    return moved
+
+
 def make_desktop_shortcut():
     """デスクトップに PodcastsChatGPT フォルダへのショートカット（エイリアスと同じように開ける）を作る。"""
     link = DESKTOP / FOLDER_NAME
+    if link.is_symlink() and os.readlink(link) == str(OLD_DEST):
+        link.unlink()  # 以前の集め先を指すショートカットは作り直す
     if link.is_symlink() or link.exists():
         return False
     try:
@@ -184,6 +204,9 @@ def needs_full_disk_access(err):
 
 def main():
     DEST.mkdir(parents=True, exist_ok=True)
+    moved = move_old_folder()
+    if moved:
+        print(f"以前の集め先（{OLD_DEST}）から {moved} 個のファイルを移しました。")
     if make_desktop_shortcut():
         print(f"デスクトップに {FOLDER_NAME} のショートカットを作りました。")
     if not DB_PATH.exists():
