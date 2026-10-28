@@ -440,3 +440,4 @@ if (params.get("import")) {
     .catch((err) => { $("importStatus").className = "status error"; $("importStatus").textContent = err.message; });
 }
 show("setup");
+window.__appStarted = true; // index.html の起動確認用

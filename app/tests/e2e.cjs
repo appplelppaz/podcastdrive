@@ -65,6 +65,7 @@ async function openMaterial(page, title, button) {
   const status = await page.textContent("#importStatus");
   check("既存ファイルのまま2回分をまとめて取り込み", (status.match(/Imported/g) || []).length === 2, status.replace(/\n/g, " / "));
   const titleA = "Morning market check", titleB = "Weather and travel";
+  check("起動エラーの表示なし", await page.evaluate(() => window.__appStarted && document.getElementById("appError").hidden));
   // iPhone は種類の分からないファイル（Drive の .ttml は application/octet-stream）を選べなくなるので、種類で絞らない
   check("ファイル選択で種類を絞らない（.ttml を選べる）", (await page.getAttribute("#fileInput", "accept")) === null);
   // iPhone の Safari は大きな Blob を IndexedDB に保存できないことがあるので、音声は ArrayBuffer で別に保存
@@ -214,6 +215,16 @@ async function openMaterial(page, title, button) {
   await waitFor(page, () => window.__engine.log.some((l) => l.kind === "original") && !document.getElementById("audio").paused);
   check("以前の版で保存した教材も再生できる", true);
   await page.click("#back");
+
+  // ---- アプリ本体が読めないとき（古い Safari の構文エラーなど）は理由を画面に出す
+  const bctx = await browser.newContext({ serviceWorkers: "block" }); // Service Worker 経由だと差し替えが効かない
+  const broken = await bctx.newPage();
+  await broken.route("**/material.js", (r) => r.fulfill({ contentType: "text/javascript", body: "export const x = ;" }));
+  await broken.goto(BASE);
+  await broken.waitForFunction(() => !document.getElementById("appError").hidden, null, { timeout: 10000 });
+  const shown = await broken.textContent("#appError");
+  check("本体が読めないときは画面に理由を表示", /Error|did not start/.test(shown), shown.slice(0, 120));
+  await bctx.close();
 
   await browser.close();
   const ng = results.filter((r) => !r).length;

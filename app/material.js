@@ -320,7 +320,8 @@ function autoGrammar(text) {
   if (!t) return "";
   t = t.split("\n")[0];
   if (/\s[—–―]\s/.test(t)) t = t.slice(t.search(/\s[—–―]\s/)).replace(/^\s[—–―]\s/, "");
-  const sentences = t.split(/(?<=[。！？])/).filter((s) => s.trim());
+  // 後読み (?<=…) は iOS 16.4 より前の Safari で構文エラーになり、アプリ全体が動かなくなるので使わない
+  const sentences = (t.match(/[^。！？]*[。！？]|[^。！？]+/g) || []).filter((s) => s.trim());
   if (!sentences.length) return "";
   let s = sentences[0].trim();
   if (sentences.length > 1 && [...s].length <= 12) s = s.replace(/。+$/, "") + "で、" + sentences[1].trim();
@@ -439,7 +440,7 @@ export function applyFix(raw, fix) {
 const FULLWIDTH = (t) => t.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 function plainNumbers(text) {
   // Python の \b（Unicode の単語境界）に合わせる
-  let t = FULLWIDTH(text).replace(/(?<=\d)[.,  '](?=\d{3}(?![\p{L}\p{N}_]))/gu, "");
+  let t = FULLWIDTH(text).replace(/(\d)[.,  '](?=\d{3}(?![\p{L}\p{N}_]))/gu, "$1");
   return t.replace(/\d+(?:億|万)(?:\d+(?:万)?)*/g, (m) => {
     let total = 0;
     for (const [, num, unit] of m.matchAll(/(\d+)(億|万)?/g)) total += Number(num) * ({ 億: 1e8, 万: 1e4 }[unit] || 1);

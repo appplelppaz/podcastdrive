@@ -13,10 +13,31 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
+<script>
+  // アプリ本体（モジュール）が読めない・止まったときに、理由を画面に出す（iPhone では開発者ツールが見られないため）
+  (function () {
+    function report(msg) {
+      var el = document.getElementById("appError");
+      if (!el) return setTimeout(function () { report(msg); }, 100);
+      el.hidden = false;
+      el.textContent += (el.textContent ? "\n" : "") + msg;
+    }
+    window.addEventListener("error", function (e) {
+      report("Error: " + (e.message || e.type) + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      report("Error: " + (e.reason && e.reason.message || e.reason));
+    });
+    setTimeout(function () {
+      if (!window.__appStarted) report("The app did not start on this browser (" + navigator.userAgent + ")");
+    }, 5000);
+  })();
+</script>
 </head>
 <body>
 <main id="setup" class="screen">
   <header class="bar"><h1>Listening Mode</h1></header>
+  <p id="appError" class="status error" role="alert" hidden></p>
 
   <section>
     <h2>Library</h2>
