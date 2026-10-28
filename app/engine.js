@@ -33,6 +33,8 @@ export const LIMITS = {
 
 const PAUSE = { repeat: 0.5, cue: 0.25, group: 0.4, part: 0.15 };
 const GROUP_LABEL = { translation: "Translation", vocab: "Vocabulary", grammar: "Notes" };
+// 案内の声は語彙（表現）と解説の前だけ。訳の前の「訳」と、元音声に戻る前の「もう一度」は流さない
+const CUED_GROUPS = ["vocab", "grammar"];
 
 export function clampSettings(s) {
   const out = { ...DEFAULTS, ...s };
@@ -65,7 +67,7 @@ export function buildSteps(doc, seg, s) {
     const parts = seg.parts.filter((p) => p.type === "speech" && p.group === group);
     if (!on || !parts.length) continue;
     steps.push({ kind: "pause", seconds: PAUSE.group });
-    if (s.cues) {
+    if (s.cues && CUED_GROUPS.includes(group)) {
       const cue = doc.cues[group];
       steps.push({ kind: "speech", cue: true, clip: cue.clip, lang: cue.lang, text: cue.text, rate: s.explanationRate, label: GROUP_LABEL[group], group });
       steps.push({ kind: "pause", seconds: PAUSE.cue });
@@ -77,11 +79,6 @@ export function buildSteps(doc, seg, s) {
     spoke = true;
   }
   steps.push({ kind: "pause", seconds: spoke ? PAUSE.group : PAUSE.repeat });
-  if (s.cues && spoke) {
-    const cue = doc.cues.again;
-    steps.push({ kind: "speech", cue: true, clip: cue.clip, lang: cue.lang, text: cue.text, rate: s.explanationRate, label: "Again", group: "again" });
-    steps.push({ kind: "pause", seconds: PAUSE.cue });
-  }
   for (let r = 0; r < s.secondRepeats; r++) {
     if (r) steps.push({ kind: "pause", seconds: PAUSE.repeat });
     steps.push(orig(r + 1, s.secondRepeats, "second"));
@@ -305,6 +302,13 @@ export class ListeningEngine extends EventTarget {
     if (performance.now() - this.player.ownPauseAt < 1000) return;
     if (!this.playing) return;
     if (this.mode === "direct" && this.step && this.step.kind !== "original") return;
+    // 元音声の終わり際（0.3秒以内）に iPhone が止めたときは、その文を流し終えたとして訳へ進む
+    if (this.mode === "direct" && this.step && this.step.kind === "original" &&
+        this.el.currentTime >= this.segment.clip.end - 0.3 && this.player.cancel) {
+      this.log.push({ t: performance.now(), seg: this.segment.id, i: this.stepIndex, kind: "end-pause" });
+      this.player.cancel();
+      return;
+    }
     if (this.settling()) {
       // 切り替えに伴う停止。そのまま続ける（再開できなければ中断として扱う）
       this.log.push({ t: performance.now(), seg: this.segment.id, i: this.stepIndex, kind: "ignored-pause" });

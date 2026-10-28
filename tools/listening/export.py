@@ -32,6 +32,10 @@ GROUP_PAUSE = 0.4
 PART_PAUSE = 0.15
 
 
+# 案内の声は語彙（表現）と解説の前だけ。訳の前の「訳」と、元音声に戻る前の「もう一度」は流さない
+CUED_GROUPS = ("vocab", "grammar")
+
+
 def build_steps(doc, seg, s):
     """1区間ぶんの再生手順 [(kind, key, rate)]。kind は clip / pause。"""
     steps = []
@@ -48,7 +52,7 @@ def build_steps(doc, seg, s):
         if not on or not parts:
             continue
         steps.append(("pause", GROUP_PAUSE, 1))
-        if s["cues"]:
+        if s["cues"] and group in CUED_GROUPS:
             steps.append(("clip", doc["cues"][group]["clip"], s["explanationRate"]))
             steps.append(("pause", CUE_PAUSE, 1))
         for i, p in enumerate(parts):
@@ -57,9 +61,6 @@ def build_steps(doc, seg, s):
             steps.append(("clip", p["clip"], rate))
         spoke = True
     steps.append(("pause", GROUP_PAUSE if spoke else REPEAT_PAUSE, 1))
-    if s["cues"] and spoke:
-        steps.append(("clip", doc["cues"]["again"]["clip"], s["explanationRate"]))
-        steps.append(("pause", CUE_PAUSE, 1))
     for r in range(s["secondRepeats"]):
         if r:
             steps.append(("pause", REPEAT_PAUSE, 1))

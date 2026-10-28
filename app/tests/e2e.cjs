@@ -93,13 +93,14 @@ async function openMaterial(page, title, button) {
   const seg = await page.evaluate(() => window.__engine.doc.segments[2]);
   const n = (g) => seg.parts.filter((p) => p.type === "speech" && p.group === g).length;
   const rep = (label, k) => Array(k).fill(label);
-  // 各項目は「案内（訳・表現・解説）＋本文」。説明のない項目は丸ごと省く
-  const expected = ["Original", ...(n("translation") ? rep("Translation", 1 + n("translation")) : []),
+  // 訳は案内なしで本文だけ。語彙・解説は「案内（表現・解説）＋本文」。元音声に戻る前の「もう一度」はない
+  const expected = ["Original", ...rep("Translation", n("translation")),
     ...(n("vocab") ? rep("Vocabulary", 1 + n("vocab")) : []), ...(n("grammar") ? rep("Notes", 1 + n("grammar")) : []),
-    "Again", "Original (again)"];
+    "Original (again)"];
   const labels = log.map((l) => l.label);
   check("再生順序 ①元音声→訳→語彙→文法→④元音声", JSON.stringify(labels) === JSON.stringify(expected), labels.join(" → "));
   const speech = await page.evaluate(() => window.__speech.filter((s) => s.text.trim()));
+  check("「訳」「もう一度」の案内を読み上げない", !speech.some((s) => s.text === "訳" || s.text === "もう一度"), speech.map((s) => s.text).slice(0, 6).join(" / "));
   check("読み上げ中は元音声が止まっている（重なりなし）", speech.every((s) => s.audioPaused) && !(await page.evaluate(() => window.__overlap)), speech.length + "件");
   check("日本語は日本語の声（高品質版を優先）", speech.filter((s) => s.lang === "ja-JP").every((s) => s.voice === "Kyoko (Enhanced)"));
   check("英語の語句は英語の声", speech.some((s) => s.lang === "en-US" && s.voice === "Samantha"), speech.filter((s) => s.lang === "en-US").map((s) => s.text).join(", "));
@@ -248,6 +249,21 @@ async function openMaterial(page, title, button) {
   await waitFor(page, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling());
   await page.evaluate(() => window.__systemPause());
   check("切り替えから時間がたてばロック画面で一時停止できる", await page.evaluate(() => !window.__engine.playing));
+  await page.click("#back");
+
+  // ---- 元音声の終わり際に iPhone が止めても、一時停止にならず訳へ進む
+  await openMaterial(page, titleB, ".from-start, .start:not(.resume)");
+  await waitFor(page, () => window.__engine.step.kind === "original" && !document.getElementById("audio").paused &&
+    performance.now() - window.__engine.stepStartedAt > 400);
+  await page.evaluate(() => new Promise((resolve) => {
+    const el = document.getElementById("audio");
+    el.addEventListener("seeked", () => { el.pause(); resolve(); }, { once: true }); // 終わり際で止まる（iPhone の動きの代わり）
+    el.currentTime = window.__engine.segment.clip.end - 0.2;
+  }));
+  await waitFor(page, () => window.__engine.step && window.__engine.step.kind !== "original", null, 5000);
+  const endPause = await page.evaluate(() => ({ playing: window.__engine.playing, kind: window.__engine.step.kind,
+    logged: window.__engine.log.some((l) => l.kind === "end-pause") }));
+  check("元音声の終わり際の停止では止まらず訳へ進む", endPause.playing && endPause.logged, JSON.stringify(endPause));
   await page.click("#back");
 
   // ---- アプリ本体が読めないとき（古い Safari の構文エラーなど）は理由を画面に出す
