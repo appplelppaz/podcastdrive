@@ -1,5 +1,5 @@
 // アプリ本体をキャッシュしてオフラインで起動できるようにする。教材は IndexedDB にある。
-const VERSION = "listening-v9";
+const VERSION = "listening-v10";
 const SHELL = ["./", "index.html", "app.css", "app.js", "engine.js", "store.js", "material.js", "boundary.js", "subtitle.js", "manifest.webmanifest",
   "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 
@@ -22,5 +22,7 @@ self.addEventListener("fetch", (e) => {
       caches.open(VERSION).then((c) => c.put(e.request, copy));
     }
     return res;
-  }).catch(() => caches.match(e.request, { ignoreSearch: true })));
+  }).catch(() => caches.match(e.request, { ignoreSearch: true })
+    // 保存していないファイル（更新で増えたファイルなど）は、もう一度ネットから取る
+    .then((hit) => hit || fetch(e.request))));
 });
