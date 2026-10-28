@@ -78,6 +78,11 @@ async function openMaterial(page, title, button) {
         audio: audio.result.map((a) => a.data instanceof ArrayBuffer && a.data.byteLength > 1000 && a.type) });
     };
   }));
+  const refined = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = () => { const g = req.result.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => resolve(g.result.map((r) => r.doc.clipsRefined)); };
+  }));
+  check("取り込み時に文の切れ目を元音声に合わせる", refined.length === 2 && refined.every((r) => r && r.version >= 1 && !r.skipped && r.boundaries > 0), JSON.stringify(refined));
   check("音声は ArrayBuffer で別に保存（行には持たない）", !stored.rowAudio && stored.audio.length === 2 && stored.audio.every((t) => t === "audio/mpeg"), JSON.stringify(stored));
 
   // ---- 再生順序: ①元音声 → 訳 → 語彙・文法 → ④元音声（読み上げは端末の声）
@@ -98,7 +103,8 @@ async function openMaterial(page, title, button) {
   check("読み上げ中は元音声が止まっている（重なりなし）", speech.every((s) => s.audioPaused) && !(await page.evaluate(() => window.__overlap)), speech.length + "件");
   check("日本語は日本語の声（高品質版を優先）", speech.filter((s) => s.lang === "ja-JP").every((s) => s.voice === "Kyoko (Enhanced)"));
   check("英語の語句は英語の声", speech.some((s) => s.lang === "en-US" && s.voice === "Samantha"), speech.filter((s) => s.lang === "en-US").map((s) => s.text).join(", "));
-  check("語彙の読み上げ「ここでは…という意味です」", speech.some((s) => /^ここでは、.+、という意味です。$/.test(s.text)));
+  // 語の後は意味だけを読む（「ここでは、…という意味です」は付けない）
+  check("語彙の読み上げは意味だけ", !speech.some((s) => /ここでは|という意味です/.test(s.text)) && speech.some((s, i) => i > 0 && speech[i - 1].lang.startsWith("en") && s.lang.startsWith("ja") && /。$/.test(s.text)));
 
   // ---- 回数・速度
   await page.evaluate(() => window.__engine.updateSettings({ ...window.__engine.settings, firstRepeats: 2, secondRepeats: 3, originalRate: 0.7, translationRate: 1.3 }));
@@ -202,10 +208,11 @@ async function openMaterial(page, title, button) {
     const req = indexedDB.open("listening-mode");
     req.onsuccess = async () => {
       const db = req.result;
-      const row = await new Promise((r) => { const g = db.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => r(g.result[0]); });
+      const row = await new Promise((r) => { const g = db.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => r(g.result.find((x) => x.mode === "direct")); });
       const a = await new Promise((r) => { const g = db.transaction("audio").objectStore("audio").get(row.id); g.onsuccess = () => r(g.result); });
       const t = db.transaction("materials", "readwrite");
-      t.objectStore("materials").put({ ...row, id: "legacy", title: "Legacy blob row", addedAt: 1, audio: new Blob([a.data], { type: a.type }) });
+      const doc = { ...row.doc, clipsRefined: undefined }; // 文の切れ目を合わせる前の版で取り込んだもの
+      t.objectStore("materials").put({ ...row, doc, id: "legacy", title: "Legacy blob row", addedAt: 1, audio: new Blob([a.data], { type: a.type }) });
       t.oncomplete = resolve; t.onerror = reject;
     };
   }));
@@ -214,6 +221,33 @@ async function openMaterial(page, title, button) {
   await openMaterial(page, "Legacy blob row", ".start");
   await waitFor(page, () => window.__engine.log.some((l) => l.kind === "original") && !document.getElementById("audio").paused);
   check("以前の版で保存した教材も再生できる", true);
+  const legacyRefined = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = () => { const g = req.result.transaction("materials").objectStore("materials").get("legacy"); g.onsuccess = () => resolve(g.result.doc.clipsRefined); };
+  }));
+  check("以前の版の教材は最初に開いたときに切れ目を合わせて保存", legacyRefined && legacyRefined.version >= 1, JSON.stringify(legacyRefined));
+  await page.click("#back");
+
+  // ---- 元音声と読み上げの切り替え直後に iPhone が送ってくる停止では止まらない。それ以外の停止は中断
+  await openMaterial(page, titleB, ".from-start");
+  await waitFor(page, () => window.__engine.step.kind === "original" && !document.getElementById("audio").paused);
+  await page.evaluate(() => document.getElementById("audio").pause()); // 切り替え直後の停止（iPhone の動きの代わり）
+  await sleep(600);
+  const afterSwitch = await page.evaluate(() => ({ playing: window.__engine.playing, audio: !document.getElementById("audio").paused,
+    ignored: window.__engine.log.some((l) => l.kind === "ignored-pause") }));
+  check("切り替え直後の音声停止では止まらず続ける", afterSwitch.playing && afterSwitch.audio && afterSwitch.ignored, JSON.stringify(afterSwitch));
+  await waitFor(page, () => window.__engine.step.kind === "speech" && window.__engine.settling());
+  await page.evaluate(() => window.__systemPause());
+  check("切り替え直後のロック画面の一時停止は無視", await page.evaluate(() => window.__engine.playing));
+  await waitFor(page, () => window.__engine.step.kind === "original" && window.__engine.playing &&
+    performance.now() - window.__engine.stepStartedAt > 1600 && !document.getElementById("audio").paused);
+  await page.evaluate(() => document.getElementById("audio").pause()); // 再生中の本当の中断（電話など）
+  await waitFor(page, () => !window.__engine.playing);
+  check("再生の途中の停止は中断として止まる", /Interrupted/.test(await page.textContent("#playerStatus")));
+  await page.evaluate(() => window.__engine.play());
+  await waitFor(page, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling());
+  await page.evaluate(() => window.__systemPause());
+  check("切り替えから時間がたてばロック画面で一時停止できる", await page.evaluate(() => !window.__engine.playing));
   await page.click("#back");
 
   // ---- アプリ本体が読めないとき（古い Safari の構文エラーなど）は理由を画面に出す

@@ -104,7 +104,7 @@ class RangePlayer {
   constructor(el) {
     this.el = el;
     this.cancel = null;
-    this.ownPause = false;
+    this.ownPauseAt = -1e9; // 自分で止めた時刻（その pause を中断と取り違えないため）
   }
 
   play(start, end, rate) {
@@ -158,7 +158,7 @@ class RangePlayer {
   stop() {
     if (this.cancel) this.cancel();
     if (!this.el.paused) {
-      this.ownPause = true;
+      this.ownPauseAt = performance.now();
       this.el.pause();
     }
   }
@@ -250,6 +250,7 @@ export class ListeningEngine extends EventTarget {
     this.token = 0;
     this.speech = null;
     this.log = [];
+    this.stepStartedAt = -1e9;
     this.clips = (doc.audio && doc.audio.clips) || {};
     this.silence = this.clips.silence;
     el.addEventListener("pause", () => this.onElementPause());
@@ -293,14 +294,27 @@ export class ListeningEngine extends EventTarget {
     };
   }
 
+  // 元音声と読み上げを切り替えた直後か。iPhone はこの切り替え（音の出し先の切り替え）に反応して、
+  // 音声を止めたりロック画面の「一時停止」を送ってきたりすることがあるので、その間は中断と見なさない
+  settling(ms = 1500) {
+    return performance.now() - this.stepStartedAt < ms;
+  }
+
   // 自分で止めたのでない pause（電話・他のアプリ・Bluetooth切断など）は中断として扱う
   onElementPause() {
-    if (this.player.ownPause) { this.player.ownPause = false; return; }
+    if (performance.now() - this.player.ownPauseAt < 1000) return;
+    if (!this.playing) return;
     if (this.mode === "direct" && this.step && this.step.kind !== "original") return;
-    if (this.playing) {
-      this.halt();
-      this.emit("interrupted");
+    if (this.settling()) {
+      // 切り替えに伴う停止。そのまま続ける（再開できなければ中断として扱う）
+      this.log.push({ t: performance.now(), seg: this.segment.id, i: this.stepIndex, kind: "ignored-pause" });
+      const token = this.token;
+      const p = this.el.play();
+      if (p) p.catch(() => { if (token === this.token && this.playing) { this.halt(); this.emit("interrupted"); } });
+      return;
     }
+    this.halt();
+    this.emit("interrupted");
   }
 
   play() {
@@ -352,7 +366,8 @@ export class ListeningEngine extends EventTarget {
         if (!this.advanceSegment()) return;
         continue;
       }
-      this.log.push({ t: performance.now(), seg: this.segment.id, i: this.stepIndex, kind: step.kind, clip: step.clip, label: step.label, rate: step.rate });
+      this.stepStartedAt = performance.now();
+      this.log.push({ t: this.stepStartedAt, seg: this.segment.id, i: this.stepIndex, kind: step.kind, clip: step.clip, label: step.label, rate: step.rate });
       this.emit("step");
       const result = await this.exec(step, token);
       if (token !== this.token) return;

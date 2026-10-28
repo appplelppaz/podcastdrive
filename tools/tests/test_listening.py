@@ -145,7 +145,7 @@ class SpeechTest(unittest.TestCase):
         self.assertEqual(kinds, [("original", None, None), ("cue", "translation", None), ("speech", "translation", "ja"),
                                  ("cue", "vocab", None), ("speech", "vocab", "en"), ("speech", "vocab", "ja"),
                                  ("cue", "again", None), ("original", None, None)])
-        self.assertEqual(parts[5]["text"], "ここでは、厳しい状況にある、という意味です。")
+        self.assertEqual(parts[5]["text"], "厳しい状況にある。")
 
 
 class ConvertTest(TempDir):
@@ -358,6 +358,46 @@ console.log(JSON.stringify(r));""" % json.dumps("file://" + os.path.join(APP, "e
         py = [[[["pause", x[1]] if x[0] == "pause" else x for x in seg] for seg in s] for s in py]
         py = [[[x for x in seg if not (x[0] == "pause" and x[1] == 0)] for seg in s] for s in py]
         self.assertEqual(js, py)
+
+
+class BoundaryTest(unittest.TestCase):
+    """app/boundary.js: 文の切れ目を元音声の静かなところに合わせる。"""
+
+    @unittest.skipUnless(shutil.which("node"), "node が必要")
+    def test_refine(self):
+        script = """
+import { refineClips, mp3Frames } from %s;
+// 10ms ごとの音量。声 -20dB、静か -70dB、音楽 -30dB
+const db = new Float32Array(2000).fill(-20);
+const quiet = (a, b) => { for (let i = a * 100; i < b * 100; i++) db[Math.round(i)] = -70; };
+quiet(0, 1.0);           // 最初の声は 1.0 秒から
+quiet(3.0, 3.3);         // 文1と文2の間（時刻は 3.2 で区切られている）
+quiet(6.0, 6.03);        // 時刻の切れ目にある短い間（そのまま使う）
+quiet(9.0, 9.4); for (let i = 940; i < 1200; i++) db[i] = -30; // 間の後に音楽、文4は 12.0 から
+quiet(15.0, 15.3);       // 時刻から 0.6 秒離れた静かなところ（単語ごとの時刻なら動かさない）
+const seg = (b, e) => ({ begin: b, end: e, clip: { begin: b, end: e } });
+const make = () => [seg(1.1, 3.2), seg(3.2, 6.0), seg(6.0, 9.0), seg(12.0, 14.4), seg(14.4, 19.0)];
+const a = make(); const st = refineClips(a, { rate: 100, db }, 20);
+const b = make(); refineClips(b, { rate: 100, db }, 20, { search: 1.0 });
+// MP3 でないデータ
+const notMp3 = mp3Frames(new Uint8Array(5000));
+console.log(JSON.stringify({ a: a.map((s) => s.clip), b: b.map((s) => s.clip), st, notMp3 }));
+""" % json.dumps("file://" + os.path.join(HERE, "..", "..", "app", "boundary.js"))
+        res = json.loads(subprocess.run(["node", "--input-type=module", "-e", script],
+                                        capture_output=True, text=True, check=True).stdout)
+        a, b = res["a"], res["b"]
+        self.assertAlmostEqual(a[0]["begin"], 0.92)          # 声の始まり（1.0）の少し前から
+        self.assertAlmostEqual(a[0]["end"], 3.12)            # 文1は声が消えた 3.0 の少し後まで
+        self.assertAlmostEqual(a[1]["begin"], 3.22)          # 文2は声が出る 3.3 の少し前から
+        self.assertAlmostEqual(a[1]["end"], 6.015)           # 短い間の中で区切る
+        self.assertAlmostEqual(a[2]["begin"], 6.015)
+        self.assertAlmostEqual(a[2]["end"], 9.12)            # 文3は声が消えたところまで
+        self.assertAlmostEqual(a[3]["begin"], 12.0)          # 音楽の中には広げない（元のまま）
+        self.assertAlmostEqual(a[3]["end"], 14.4)            # 近くに静かなところがない（元のまま）
+        self.assertAlmostEqual(a[4]["begin"], 14.4)
+        self.assertAlmostEqual(b[3]["end"], 15.12)           # 広く探すと（文ごとの時刻）静かなところで区切る
+        self.assertAlmostEqual(b[4]["begin"], 15.22)
+        self.assertIsNone(res["notMp3"])
 
 
 class OldSafariSyntaxTest(unittest.TestCase):

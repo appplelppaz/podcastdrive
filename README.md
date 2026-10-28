@@ -86,6 +86,25 @@ python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinv
 python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
 ```
 
+## JSON を作るスキル（`skills/`）
+
+Claude のスキルで、Language Drill とこのアプリの両方で使える JSON を作ります。
+
+| スキル | 使うとき |
+|---|---|
+| `podcast-json` | Apple Podcasts から取り込み → 整理 → TTML から JSON（一括） |
+| `ttml-to-json` | TTML から JSON（変換だけ）。既存の JSON に単語の時刻だけを足すことも |
+| `podcast-transcribe` | TTML がない回：音声から単語ごとの時刻付き TTML を作り、JSON まで作る |
+
+- JSON の既存の項目（`begin` `end` `original` `translation` `words` `grammar` `pinyin`）は変えず、
+  各文に `wordTimings`（`[[開始秒, 終了秒, "語"], ...]`）を足します。Language Drill は知らない項目を使いません。
+- 共通スクリプト（`podcast-json/scripts/`）: `parse_ttml.py`（文ごとに分け、単語の時刻も返す）、
+  `add_word_timings.py`（既存の JSON に単語の時刻だけを足す）、`validate_json.py`（訳のずれ・時刻・形の確認）。
+- `podcast-transcribe/scripts/transcribe.py`: Whisper large-v3（Mac では mlx-whisper、ほかは faster-whisper）で
+  単語の時刻付きの Apple 形式 TTML を作ります。
+- 直したら `python3 skills/build.py` で共通スクリプトを各スキルへ写し、`skills/dist/*.skill` を作ります（claude.ai に入れるファイル）。
+- 確認: `python3 -m unittest skills/tests/test_skills.py`
+
 ## アプリの置き場所
 
 アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。
@@ -126,6 +145,7 @@ python3 tools/export_learning_track.py "…/エピソード名 (日付).listenin
 
 - **時刻**：JSON の `begin`/`end` を、TTML の単語の境界が 60ms 以内にあるときだけそれに合わせます。
   時刻を推測で作ることはしません。
+- **切れ目を音声に合わせる（アプリで取り込むとき）**：元音声の音量を調べ、文の切れ目の近くで声が途切れているところ（60ms 以上静かなところ）に、前の文の終わりと次の文の始まりを合わせます。前の文は声が消えた少し後（0.12秒）まで、次の文は声が出る少し前（0.08秒）から流します。単語ごとの時刻がある TTML（Apple）では前後 0.35 秒、文ごとの時刻しかないとき（音声から作った TTML、JSON のみ）は前後 0.8 秒の範囲だけを探し、静かなところがなければ時刻どおりにします。以前に取り込んだ回は、最初に開いたときに一度だけ行います。
 - **文の区切り**：1区間に複数の文があり、文ごとの訳（`translationParts`）と TTML の文の時刻が両方そろうときだけ分割します。
   文の途中で切れた区間は、次の区間とまとめます。どちらにも当てはまらなければ既存の区間をそのまま使います。
 - **聞くための解説**：教材を取り込むときに一度だけ作って端末に保存します。AI や外部サービスは使いません。

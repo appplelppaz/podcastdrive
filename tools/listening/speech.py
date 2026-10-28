@@ -194,7 +194,7 @@ def estimate_seconds(runs, target_lang="ja"):
 
 def vocab_runs(item, source_lang, target_lang="ja"):
     runs = [(source_lang, item["term"])]
-    runs.append((target_lang, "ここでは、%s、という意味です。" % item["meaning"].rstrip("。")))
+    runs.append((target_lang, item["meaning"].rstrip("。") + "。"))
     if item.get("note"):
         runs.extend(split_runs(item["note"], source_lang, target_lang))
     return runs

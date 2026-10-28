@@ -115,7 +115,7 @@ async function renderLibrary() {
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
   status.className = "status";
-  status.textContent = "Importing…";
+  status.textContent = "Importing… (matching sentences to the audio, this takes a few seconds)";
   try {
     const { imported, errors } = await store.importFiles(e.target.files);
     const lines = imported.map((r) => `Imported “${r.title}”` +
@@ -176,6 +176,10 @@ function open(id, how) {
   setStatus("Loading audio…");
   show("player");
   store.getAudio(row).then(async (audio) => {
+    if (store.needsRefine(row)) {
+      setStatus("Matching sentences to the audio… (first time only)");
+      await store.ensureRefined(row, audio);
+    }
     // 無音がまだ鳴っていれば止め終えてから始める（その pause を中断と取り違えないように）
     const el = $("audio");
     if (!el.paused) await new Promise((r) => { el.addEventListener("pause", r, { once: true }); el.pause(); setTimeout(r, 300); });
@@ -193,6 +197,7 @@ function start(row, audio, how) {
   const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id)) : 0;
   engine = new ListeningEngine({ doc: row.doc, audioUrl, mode: row.mode, el: $("audio"), settings, position: { segIndex } });
   window.__engine = engine; // 動作確認用
+  window.__systemPause = systemPause;
   engine.addEventListener("state", renderPlayer);
   engine.addEventListener("step", renderPlayer);
   engine.addEventListener("position", () => { savePos(); updateMediaSession(); });
@@ -282,6 +287,10 @@ function renderPlayer() {
   renderSubtitle(s.segment);
   $("counter").textContent = `${s.segIndex + 1} / ${s.total}`;
   if (s.label || !s.playing) lastLabel = s.playing ? s.label : "Paused";
+  // 読み上げ中（<audio> は止めている）も、ロック画面には再生中と伝える
+  if ("mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = s.playing ? "playing" : "paused"; } catch { /* 未対応 */ }
+  }
   $("stepLabel").textContent = lastLabel;
   // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
   if (step && step.kind === "speech" && !step.cue) {
@@ -392,8 +401,8 @@ function setupMediaSession() {
   if (!("mediaSession" in navigator)) return;
   const handlers = {
     play: () => engine && engine.play(),
-    pause: () => engine && engine.pause(),
-    stop: () => engine && engine.pause(),
+    pause: systemPause,
+    stop: systemPause,
     nexttrack: () => engine && engine.next(),
     previoustrack: () => engine && (settings.carPrevious === "restart" ? engine.restart() : engine.previous()),
     // シーク操作を登録すると iOS のロック画面が「前へ・次へ」ではなく秒送りになるため登録しない
@@ -403,6 +412,14 @@ function setupMediaSession() {
     try { navigator.mediaSession.setActionHandler(action, fn); } catch { /* 未対応の操作 */ }
   }
   updateMediaSession();
+}
+
+// ロック画面・車・イヤホンからの一時停止。元音声と読み上げの切り替え直後に iPhone が自動で送ってくる
+// 「一時停止」は無視する（押した操作なら、切り替えから時間がたっているので効く）
+function systemPause() {
+  if (!engine || !engine.playing) return;
+  if (engine.settling()) return;
+  engine.pause();
 }
 
 function updateMediaSession() {
