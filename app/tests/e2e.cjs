@@ -2,6 +2,7 @@
 //   node app/tests/e2e.cjs <教材フォルダ> <アプリのURL>
 const { chromium } = require("playwright");
 const path = require("path");
+const fs = require("fs");
 
 const [DIR, BASE] = process.argv.slice(2);
 const PREPARED = "Morning market check (2026-01-01)"; // 準備ツールで作った .listening.json（以前の方式）
@@ -64,6 +65,19 @@ async function openMaterial(page, title, button) {
   const status = await page.textContent("#importStatus");
   check("既存ファイルのまま2回分をまとめて取り込み", (status.match(/Imported/g) || []).length === 2, status.replace(/\n/g, " / "));
   const titleA = "Morning market check", titleB = "Weather and travel";
+  // iPhone は種類の分からないファイル（Drive の .ttml は application/octet-stream）を選べなくなるので、種類で絞らない
+  check("ファイル選択で種類を絞らない（.ttml を選べる）", (await page.getAttribute("#fileInput", "accept")) === null);
+  // iPhone の Safari は大きな Blob を IndexedDB に保存できないことがあるので、音声は ArrayBuffer で別に保存
+  const stored = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = () => {
+      const t = req.result.transaction(["materials", "audio"]);
+      const rows = t.objectStore("materials").getAll(), audio = t.objectStore("audio").getAll();
+      t.oncomplete = () => resolve({ rowAudio: rows.result.some((r) => "audio" in r),
+        audio: audio.result.map((a) => a.data instanceof ArrayBuffer && a.data.byteLength > 1000 && a.type) });
+    };
+  }));
+  check("音声は ArrayBuffer で別に保存（行には持たない）", !stored.rowAudio && stored.audio.length === 2 && stored.audio.every((t) => t === "audio/mpeg"), JSON.stringify(stored));
 
   // ---- 再生順序: ①元音声 → 訳 → 語彙・文法 → ④元音声（読み上げは端末の声）
   await openMaterial(page, titleA, ".start");
@@ -167,6 +181,39 @@ async function openMaterial(page, title, button) {
   await page.setInputFiles("#fileInput", [ascii("a.json")]);
   await waitFor(page, () => /audio file/.test(document.getElementById("importStatus").textContent));
   check("音声がないときは理由を表示", true, await page.textContent("#importStatus"));
+
+  // ---- Drive からの .ttml（種類が application/octet-stream）も字幕として使う。関係ないファイルは理由を表示
+  const buf = (n) => fs.readFileSync(ascii(n));
+  await page.setInputFiles("#fileInput", [
+    { name: "a.json", mimeType: "application/json", buffer: buf("a.json") },
+    { name: "a.mp3", mimeType: "audio/mpeg", buffer: buf("a.mp3") },
+    { name: "a.ttml", mimeType: "application/octet-stream", buffer: buf("a.ttml") },
+    { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("x") },
+  ]);
+  await waitFor(page, () => /Imported/.test(document.getElementById("importStatus").textContent));
+  const st = await page.textContent("#importStatus");
+  const metaA2 = await page.locator("#library li", { hasText: titleA }).first().locator(".meta").textContent(); // 新しいものが先頭
+  check("octet-stream の .ttml も取り込む", /Imported/.test(st) && !/no transcript timing/.test(metaA2), metaA2);
+  check("対象外のファイルは理由を表示", /notes\.txt: skipped/.test(st), st.replace(/\n/g, " / "));
+
+  // ---- 以前の版で音声を Blob として行に保存した教材も再生できる
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const req = indexedDB.open("listening-mode");
+    req.onsuccess = async () => {
+      const db = req.result;
+      const row = await new Promise((r) => { const g = db.transaction("materials").objectStore("materials").getAll(); g.onsuccess = () => r(g.result[0]); });
+      const a = await new Promise((r) => { const g = db.transaction("audio").objectStore("audio").get(row.id); g.onsuccess = () => r(g.result); });
+      const t = db.transaction("materials", "readwrite");
+      t.objectStore("materials").put({ ...row, id: "legacy", title: "Legacy blob row", addedAt: 1, audio: new Blob([a.data], { type: a.type }) });
+      t.oncomplete = resolve; t.onerror = reject;
+    };
+  }));
+  await page.reload();
+  await page.waitForSelector("#library li");
+  await openMaterial(page, "Legacy blob row", ".start");
+  await waitFor(page, () => window.__engine.log.some((l) => l.kind === "original") && !document.getElementById("audio").paused);
+  check("以前の版で保存した教材も再生できる", true);
+  await page.click("#back");
 
   await browser.close();
   const ng = results.filter((r) => !r).length;

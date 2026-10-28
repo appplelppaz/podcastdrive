@@ -143,16 +143,53 @@ function resumeIndex(doc, pos) {
   return byId >= 0 ? byId : Math.min(pos.segIndex || 0, doc.segments.length - 1);
 }
 
-// タップの処理の中で再生まで同期的に進める（iPhone は非同期の後だと再生を許さないことがある）
+// 0.1秒の無音（WAV）。タップの中でこれを再生して <audio> の再生を許可させておく
+const SILENCE = (() => {
+  const n = 800, buf = new DataView(new ArrayBuffer(44 + n * 2));
+  const w = (o, str) => [...str].forEach((c, i) => buf.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); buf.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); buf.setUint32(16, 16, true);
+  buf.setUint16(20, 1, true); buf.setUint16(22, 1, true); buf.setUint32(24, 8000, true); buf.setUint32(28, 16000, true);
+  buf.setUint16(32, 2, true); buf.setUint16(34, 16, true); w(36, "data"); buf.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+})();
+
+// iPhone はタップの処理の外（音声の読み込みを待った後）だと再生を許さないことがあるので、
+// タップの中で同じ <audio> を一度鳴らし、読み上げも準備しておく
+function unlockAudio() {
+  const el = $("audio");
+  el.src = SILENCE;
+  const p = el.play();
+  if (p) p.catch(() => { /* 許可されなければ、再生ボタンのタップで始める */ });
+}
+
+let opening = 0;
 function open(id, how) {
   const row = rowsById.get(id);
   if (!row) return;
+  const token = ++opening;
+  if (engine) { engine.pause(); engine = null; }
   unlockSpeech();
-  if (engine) engine.pause();
+  unlockAudio();
   current = row;
   store.setLastMaterialId(id);
+  $("title").textContent = row.title;
+  setStatus("Loading audio…");
+  show("player");
+  store.getAudio(row).then(async (audio) => {
+    // 無音がまだ鳴っていれば止め終えてから始める（その pause を中断と取り違えないように）
+    const el = $("audio");
+    if (!el.paused) await new Promise((r) => { el.addEventListener("pause", r, { once: true }); el.pause(); setTimeout(r, 300); });
+    if (token !== opening) return;
+    start(row, audio, how);
+  }).catch((err) => {
+    if (token === opening) setStatus(err.message, true);
+  });
+}
+
+function start(row, audio, how) {
+  const id = row.id;
   if (audioUrl) URL.revokeObjectURL(audioUrl);
-  audioUrl = URL.createObjectURL(row.audio);
+  audioUrl = URL.createObjectURL(audio);
   const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id)) : 0;
   engine = new ListeningEngine({ doc: row.doc, audioUrl, mode: row.mode, el: $("audio"), settings, position: { segIndex } });
   window.__engine = engine; // 動作確認用
@@ -172,7 +209,6 @@ function open(id, how) {
   renderedSeg = null;
   lastLabel = "";
   savePos();
-  show("player");
   setupMediaSession();
   renderPlayer();
   engine.play();
