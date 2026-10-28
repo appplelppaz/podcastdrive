@@ -258,6 +258,53 @@ class ApplyFixTest(TempDir):
             apply_fix.apply(j, j[:-5] + ".fix.json")
 
 
+class MaterialParityTest(TempDir):
+    """アプリ（app/material.js）が既存ファイルから作るデータが、Python の変換と同じであること。"""
+
+    @unittest.skipUnless(shutil.which("node"), "node が必要")
+    def test_same_material(self):
+        segs = [dict(s) for s in ConvertTest.SEGS]
+        segs[1]["words"] = [{"word": "not much", "meaning": "あまりない、大したことはない", "pos": "熟語"},
+                            {"word": "much", "meaning": "多く", "pos": "副詞"},
+                            {"word": "Tehran", "meaning": "テヘラン", "pos": "固有名詞"}]
+        segs[1]["grammar"] = "not much — 否定。「あまり〜ない」（量）を表す。短い答えでよく使う。"
+        cases = [(segs, None)]
+        fix = {"format": "podcast-listening-fix", "formatVersion": 1, "segments": {
+            "1#1": {"translation": "物価が上がった。", "vocab": [["went up", "上がった", "句動詞", ""]]},
+            "1#2": {"translation": "人々は心配している。", "vocab": [], "grammar": "[[worried]]は形容詞です。"},
+            "2": {"translation": None, "vocab": [["not much", "ほとんどない", "熟語", "短い答えです。"]],
+                  "translationSpeech": "たいしたことはない。"}}}
+        cases.append((segs, fix))
+        for segments, fx in cases:
+            j = self.write("[Demo] Ep (20260101).json", episode(segments))
+            t = self.write("[Demo] Ep (20260101).ttml", TTML)
+            if fx:
+                fx = dict(fx, base={"file": "x", "sha256": convert.sha256_file(j)})
+                self.write("[Demo] Ep (20260101).fix.json", fx)
+                sys.path.insert(0, os.path.dirname(HERE))
+                import apply_fix
+                py = apply_fix.apply(j, j[:-5] + ".fix.json")
+            else:
+                py = convert.convert(j, t, None, None, log=lambda *a: None)
+            script = """
+import { buildMaterial } from %s;
+import fs from "fs";
+const [j, t, f] = process.argv.slice(1);
+const doc = buildMaterial({ json: JSON.parse(fs.readFileSync(j, "utf8")), ttml: fs.readFileSync(t, "utf8"),
+  fix: f ? JSON.parse(fs.readFileSync(f, "utf8")) : undefined, name: j.split("/").pop() });
+console.log(JSON.stringify(doc));""" % json.dumps("file://" + os.path.join(APP, "material.js"))
+            args = ["node", "--input-type=module", "-e", script, j, t] + ([j[:-5] + ".fix.json"] if fx else [])
+            js = json.loads(subprocess.run(args, capture_output=True, text=True, check=True).stdout)
+            keys = ("key", "sourceSegmentIds", "begin", "end", "clip", "original", "translation", "wordTimings")
+            pick = lambda d: [{**{k: s.get(k) for k in keys},  # noqa: E731
+                               "listening": {k: s["listening"][k] for k in ("vocab", "grammar", "estimatedSeconds")},
+                               "parts": [{k: p.get(k) for k in ("type", "group", "lang", "text")} for p in s["parts"]]}
+                              for s in d["segments"]]
+            self.assertEqual(pick(js), pick(py))
+            self.assertEqual(js["warnings"], py["warnings"])
+            self.assertEqual(len(js["segments"]), 3 if fx else 2)
+
+
 class StepParityTest(TempDir):
     """書き出し（Python）とアプリ（JavaScript）の再生順が同じであること。"""
 

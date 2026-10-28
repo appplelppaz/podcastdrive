@@ -10,65 +10,36 @@
 5. 次の文へ
 
 ```
-tools/   教材の準備（Mac で実行。標準ライブラリの Python と ffmpeg だけを使う）
 app/     iPhone 向けの再生アプリ（PWA。ホーム画面に追加して使う）
+tools/   必要なときだけ使う Mac 用の道具（ロック中向けの音声の作成、学習用音声の書き出し）
 ```
 
-外部の有料サービスや認証は使いません。音声合成は macOS 標準の `say`（無料・オフライン）です。
+**準備は要りません。** 今ある音声（`.mp3`）・JSON・原稿（`.ttml`）をそのままアプリに取り込みます。
+訳・語彙・文法の説明は、iPhone の音声で読み上げます（説明がない文は自然に省きます）。
+外部の有料サービスや認証は使いません。
 
 ## 使い方
 
-### 1. 教材を準備する（Mac、教材ごとに1回）
+### 1. iPhone に教材を入れる（出発前）
 
-ffmpeg が必要です（`brew install ffmpeg`）。Drive の教材フォルダ（同名の `.json`・`.ttml`・`.mp3`）で実行します。
+1. Safari で https://podcastdrive-app.vercel.app を開き、共有メニューの「ホーム画面に追加」を選ぶ。
+2. **Add material** を押し、ファイルアプリ（Google Drive）の番組フォルダから、
+   聴きたい回の **`.mp3`・`.json`・`.ttml` を一緒に**選ぶ。
+   - 何回分かをまとめて選べます。同じ名前のファイルが1つの教材になります。
+   - `.ttml` があると、時刻が単語単位で正確になり、字幕で今の単語が強調されます（なくても再生できます）。
+   - 訳の訂正データ（`.fix.json`）がある回は、それも一緒に選びます（例：Iran's economy の回）。
+     既存JSONの訳が音声とずれている回は、取り込み時に警告が出ます。
+3. 取り込んだ教材は端末内に保存されるので、運転中は通信なしで再生できます。
+4. 設定を選んで **Start**（前回の続きがあれば **Resume**）を押す。
 
-```bash
-python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinventing Kodak (20260414).json"
-```
+**読み上げの声**：iPhone の 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から、
+日本語「Kyoko（拡張）」、英語「Samantha（拡張）」などをダウンロードしておくと、自動でその声を使います。
 
-同じフォルダに次の2つができます。元ファイルは変更しません。
+**画面ロックについて**：iPhone の音声読み上げは、画面がロックされると止まることがあります。
+アプリは再生中に画面を消さないようにしています（設定 **Keep screen on while playing**、初期値オン）。
+車ではホルダーに置いたまま、画面を点けておく使い方を想定しています。
 
-- `エピソード名 (日付).listening.json` — 聞き流し専用のデータ（下記）
-- `エピソード名 (日付).listening.m4a` — 再生用音声。元音声の各区間と、訳・解説の合成音声を1本にまとめたもの
-
-ファイル名はエピソード名から始まるので、iPhone のファイル選択画面で見つけやすくなっています
-（例：`Iran's economy - Counting the cost of war (2026-01-01).listening.m4a`）。番組名はフォルダで分かれているので名前には入れません。
-エピソード名の「:」は「 - 」に置き換えます。`.m4a` のタイトル情報にもエピソード名を入れます。
-
-2回目以降は、合成音声をキャッシュ（`.listening_cache/`）から使い回し、文章が変わった部分だけ作り直します。
-回数・速度・無音・オン/オフはアプリ側で変えるので、作り直しは不要です。
-
-既に `.listening.json` がある教材は、音声だけを作ります。
-
-```bash
-python3 tools/render_listening_audio.py "…/エピソード名 (日付).listening.json"
-```
-
-**訳の訂正データ（`元の名前.fix.json`）がある教材**：既存JSONの訳が音声とずれていた回のために、訂正データを用意しています。
-訂正データを当てて `.listening.json` を作ってから、音声を作ります。元のJSONは変更しません。
-
-```bash
-python3 tools/apply_fix.py "英語/Business Daily/[Business Daily] Iran’s economy_ Counting the cost of war (20260101).json"
-```
-
-```bash
-python3 tools/render_listening_audio.py "英語/Business Daily/Iran's economy - Counting the cost of war (2026-01-01).listening.json"
-```
-
-声を変えるときは `--voice ja=Otoya --voice en=Daniel` を付けます。
-Mac 以外では `--engine openjtalk`（`pip install pyopenjtalk-plus` と espeak-ng が必要）も使えます。
-
-### 2. iPhone に入れる（出発前）
-
-1. Safari でアプリを開き、共有メニューの「ホーム画面に追加」を選ぶ。
-2. **Add material** を押し、ファイルアプリ（Google Drive）から `.listening.json` と `.listening.m4a` を**一緒に**選ぶ。
-   教材は端末内に保存されるので、運転中は通信なしで再生できます。
-3. 設定を選んで **Start**（前回の続きがあれば **Resume**）を押す。
-
-`.listening.m4a` がなくても、`.listening.json` と元の `.mp3` だけで「basic mode」として使えます。
-この場合、訳と解説は端末の音声合成で読み上げます。画面がついている間の利用向けです。
-
-### 3. 運転中の操作
+### 2. 運転中の操作
 
 | 操作 | 画面のジェスチャー | 車・ロック画面・イヤホン |
 | --- | --- | --- |
@@ -93,18 +64,27 @@ Mac 以外では `--engine openjtalk`（`pip install pyopenjtalk-plus` と espea
 | 訳の読み上げ速度 / 解説の読み上げ速度 | 各0.5〜2倍 | 1倍 |
 | 文と文の間の無音 | 0〜3秒 | 0.7秒 |
 | 日本語訳・語彙・文法と背景・案内（「訳」「表現」「もう一度」）・エピソードのリピート | オン/オフ | リピートのみオフ |
+| 再生中は画面を消さない | オン/オフ | オン |
 
-### 最終手段：学習用音声の書き出し
+## 必要なときだけ：Mac で作る音声（`tools/`）
 
-ロック中にアプリが止まる端末では、設定を焼き込んだ1本の音声（文ごとに章付き）を書き出して、
-普通の音楽・ポッドキャストアプリで聞けます。アプリの **Export settings** で保存した設定も使えます。
+画面をロックしたまま聞きたいときは、Mac で訳・解説を事前に音声にしておく方法もあります
+（macOS 標準の `say` を使用。無料・オフライン）。ffmpeg が必要です（`brew install ffmpeg`）。
 
 ```bash
-python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --settings listening-settings.json
-python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
+python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinventing Kodak (20260414).json"
 ```
 
-速度ごとの音声をキャッシュするので、回数・無音・オン/オフを変えた書き出しは数秒で終わります。
+同じフォルダに `エピソード名 (日付).listening.json` と `エピソード名 (日付).listening.m4a` ができます。
+この2つを一緒に **Add material** で選ぶと、元音声と読み上げを1本の音声として再生します。
+訂正データがある回は `python3 tools/apply_fix.py "…/元の名前.json"` のあと
+`python3 tools/render_listening_audio.py "…/エピソード名 (日付).listening.json"` を実行します。
+
+設定を焼き込んだ1本の音声（文ごとに章付き）を書き出して、普通の音楽アプリで聞くこともできます。
+
+```bash
+python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
+```
 
 ## アプリの置き場所
 
@@ -116,6 +96,8 @@ python3 tools/export_learning_track.py "…/エピソード名 (日付).listenin
 公開されるのはアプリ本体だけで、教材は含みません。教材は各端末に取り込みます。
 
 ## 専用JSON（`エピソード名 (日付).listening.json`）
+
+アプリは既存ファイルを取り込むときに、これと同じ形のデータを端末内で作ります（`app/material.js`。Mac の `tools/` と同じ規則で、テストで結果の一致を確かめています）。
 
 | キー | 内容 |
 | --- | --- |
@@ -146,7 +128,7 @@ python3 tools/export_learning_track.py "…/エピソード名 (日付).listenin
   時刻を推測で作ることはしません。
 - **文の区切り**：1区間に複数の文があり、文ごとの訳（`translationParts`）と TTML の文の時刻が両方そろうときだけ分割します。
   文の途中で切れた区間は、次の区間とまとめます。どちらにも当てはまらなければ既存の区間をそのまま使います。
-- **聞くための解説**：教材の準備時に一度だけ作って保存します。再生時に AI は呼びません。
+- **聞くための解説**：教材を取り込むときに一度だけ作って端末に保存します。AI や外部サービスは使いません。
   記号・括弧・スラッシュ・品詞ラベル・【訂正】メモは読み上げません。解説は通常速度で20秒以内に収めます。
 - **訳のずれの検出**：原文の数字が訳に見当たらない区間が多いと警告を出します。
 

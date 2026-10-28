@@ -1,4 +1,4 @@
-import { DEFAULTS, LIMITS, ListeningEngine, clampSettings } from "./engine.js";
+import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 
 const $ = (id) => document.getElementById(id);
@@ -7,6 +7,7 @@ let engine = null;
 let current = null; // 開いている教材の行
 let audioUrl = null;
 let lastLabel = "";
+let rowsById = new Map(); // 一覧の教材（音声は参照だけ。開くときに待たずに再生を始めるため）
 
 // ---------------------------------------------------------------- 設定
 
@@ -73,6 +74,7 @@ function historyText(row) {
 
 async function renderLibrary() {
   const rows = await store.listMaterials();
+  rowsById = new Map(rows.map((r) => [r.id, r]));
   const ul = $("library");
   ul.innerHTML = "";
   $("libraryEmpty").hidden = rows.length > 0;
@@ -83,8 +85,11 @@ async function renderLibrary() {
     li.dataset.id = row.id;
     li.innerHTML = `<div class="name"></div><div class="meta"></div><div class="actions"></div>`;
     li.querySelector(".name").textContent = row.title;
+    const notes = [];
+    if (row.mode === "direct" && row.hasTtml === false) notes.push("no transcript timing");
+    if (row.translationMismatch) notes.push("⚠ translations may not match the audio");
     li.querySelector(".meta").textContent =
-      `${row.channel ? row.channel + " · " : ""}${row.segments} sentences${row.mode === "sprite" ? "" : " · basic mode"} — ${historyText(row)}`;
+      `${row.channel ? row.channel + " · " : ""}${row.segments} sentences${notes.length ? " · " + notes.join(" · ") : ""} — ${historyText(row)}`;
     const actions = li.querySelector(".actions");
     const add = (label, cls, fn) => {
       const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
@@ -111,8 +116,11 @@ $("fileInput").addEventListener("change", async (e) => {
   status.className = "status";
   status.textContent = "Importing…";
   try {
-    const row = await store.importFiles(e.target.files);
-    status.textContent = `Imported “${row.title}”${row.mode === "sprite" ? "" : " (basic mode: original audio + device voice)"}`;
+    const { imported, errors } = await store.importFiles(e.target.files);
+    const lines = imported.map((r) => `Imported “${r.title}”` +
+      (r.translationMismatch ? " — ⚠ the translations may not match the audio. If you have its .fix.json, import it together." : ""));
+    status.textContent = [...lines, ...errors].join("\n");
+    if (errors.length || imported.some((r) => r.translationMismatch)) status.className = "status error";
   } catch (err) {
     status.className = "status error";
     status.textContent = err.message;
@@ -134,9 +142,11 @@ function resumeIndex(doc, pos) {
   return byId >= 0 ? byId : Math.min(pos.segIndex || 0, doc.segments.length - 1);
 }
 
-async function open(id, how) {
-  const row = await store.getMaterial(id);
+// タップの処理の中で再生まで同期的に進める（iPhone は非同期の後だと再生を許さないことがある）
+function open(id, how) {
+  const row = rowsById.get(id);
   if (!row) return;
+  unlockSpeech();
   if (engine) engine.pause();
   current = row;
   store.setLastMaterialId(id);
@@ -157,7 +167,7 @@ async function open(id, how) {
   $("title").textContent = row.title;
   $("subtitle").lang = row.doc.sourceLanguage || "en";
   $("spoken").lang = row.doc.targetLanguage || "ja";
-  setStatus(row.mode === "sprite" ? "" : "Basic mode — playback may stop when the screen locks");
+  setStatus(row.mode === "sprite" ? "" : settings.keepAwake ? "The screen stays on while playing" : "Playback may stop when the screen locks");
   renderedSeg = null;
   lastLabel = "";
   savePos();
@@ -244,6 +254,22 @@ function renderPlayer() {
   pp.textContent = s.playing ? "⏸" : "▶";
   pp.setAttribute("aria-label", s.playing ? "Pause" : "Play");
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s.playing ? "playing" : "paused";
+  updateWakeLock();
+}
+
+// 再生中は画面を消さない（端末の音声合成は画面ロックで止まることがあるため）
+let wakeLock = null;
+async function updateWakeLock() {
+  const want = engine && engine.playing && settings.keepAwake && document.visibilityState === "visible";
+  try {
+    if (want && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch { wakeLock = null; /* 未対応・拒否 */ }
 }
 
 function show(name) {
@@ -265,7 +291,7 @@ function flash(text) {
 }
 
 const actions = {
-  toggle() { if (!engine) return; const was = engine.playing; engine.toggle(); flash(was ? "Ⅱ Paused" : "▶ Playing"); },
+  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ Paused" : "▶ Playing"); },
   next() { if (!engine) return; engine.next(); flash("Next ›"); },
   previous() { if (!engine) return; engine.previous(); flash("‹ Previous"); },
   restart() { if (!engine) return; engine.restart(); flash("↺ Restart"); },
@@ -347,7 +373,10 @@ function updateMediaSession() {
 }
 
 // アプリが裏に回る・閉じるときにも位置を保存する
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") savePos(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") savePos();
+  updateWakeLock();
+});
 window.addEventListener("pagehide", () => savePos());
 
 // ---------------------------------------------------------------- 起動
