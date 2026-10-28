@@ -212,15 +212,60 @@ class TranscribeTest(Temp):
         self.assertEqual(tr.guess_script(os.path.join(self.dir, "a.mp3")), "simplified")
 
 
+class NightlyToolsTest(Temp):
+    """夜間処理（ChatGPT Work）の _tools: 回のまとめ・言語別フォルダへの移動・訳のデータから JSON。"""
+
+    def run_tool(self, *args):
+        tools = os.path.join(os.path.dirname(SKILLS), "nightly", "_tools")
+        env = dict(os.environ, PODCAST_ROOT=self.dir, PYTHONUTF8="1")
+        r = subprocess.run([sys.executable, os.path.join(tools, args[0])] + list(args[1:]),
+                           capture_output=True, text=True, env=env)
+        return r.returncode, json.loads(r.stdout) if r.stdout.strip().startswith(("{", "[")) else r.stdout
+
+    def test_scan_place_and_build(self):
+        self.write("some episode.ttml", APPLE)
+        self.write("lonely.json", "{}")
+        code, scan = self.run_tool("inbox.py", "scan")
+        acts = {g["key"]: g["action"] for g in scan["inbox"]}
+        self.assertEqual(acts, {"some episode": "json_from_ttml", "lonely": "review: JSON だけでは処理できない"})
+        code, placed = self.run_tool("inbox.py", "place", "--key", "some episode", "--lang", "en",
+                                     "--channel", "Daily: News", "--title", "Prices / costs?", "--date", "20260101")
+        ttml = placed["files"]["ttml"]
+        self.assertEqual(os.path.relpath(ttml, self.dir),
+                         os.path.join("英語", "Daily_ News", "[Daily_ News] Prices _ costs_ (20260101).ttml"))
+        code, scan = self.run_tool("inbox.py", "scan")
+        self.assertEqual([g["key"] for g in scan["resume"]], ["[Daily_ News] Prices _ costs_ (20260101)"])
+        code, st = self.run_tool("build_json.py", "status", ttml)
+        self.assertEqual((st["sentences"], st["missing_count"]), (3, 3))
+        with open(os.path.join(st["work_dir"], "trans_001.json"), "w", encoding="utf-8") as f:  # 名前に [ ] があっても読む
+            json.dump({"1": {"t": "物価は50%上がった。", "w": [{"word": "rose", "meaning": "上がった、増えた", "pos": "動詞"}], "g": ""},
+                       "2": {"t": "スミス氏は同意した。", "w": [], "g": ""}}, f, ensure_ascii=False)
+        code, res = self.run_tool("build_json.py", "build", ttml)
+        self.assertEqual((code, res["missing"]), (1, [3]))  # 全部そろうまで書き出さない
+        with open(os.path.join(st["work_dir"], "trans_002.json"), "w", encoding="utf-8") as f:
+            json.dump({"3": {"t": "はい。", "w": [], "g": ""}}, f, ensure_ascii=False)
+        code, res = self.run_tool("build_json.py", "build", ttml)
+        self.assertEqual((code, res["ok"]), (0, True), res)
+        with open(res["json"], encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual(doc["metadata"]["channel"], "Daily_ News")
+        self.assertEqual(doc["metadata"]["publishDate"], "2026-01-01")
+        self.assertEqual(doc["segments"][0]["wordTimings"][0], [1.0, 1.4, "Prices"])
+
+
 class SkillPackageTest(unittest.TestCase):
     """SKILL.md の書式（名前・説明）と、スクリプトの構文。"""
 
     def test_shared_scripts_are_in_sync(self):
-        for name in ("ttml-to-json", "podcast-transcribe"):
-            for f in ("parse_ttml.py", "add_word_timings.py", "validate_json.py"):
-                with open(os.path.join(PJ, f), encoding="utf-8") as a, \
-                        open(os.path.join(SKILLS, name, "scripts", f), encoding="utf-8") as b:
-                    self.assertEqual(a.read(), b.read(), f"{name}/scripts/{f} が古い（python3 skills/build.py を実行）")
+        nightly = os.path.join(os.path.dirname(SKILLS), "nightly", "_tools", "scripts")
+        pairs = [(os.path.join(PJ, f), os.path.join(SKILLS, name, "scripts", f))
+                 for name in ("ttml-to-json", "podcast-transcribe")
+                 for f in ("parse_ttml.py", "add_word_timings.py", "validate_json.py")]
+        pairs += [(os.path.join(PJ, f), os.path.join(nightly, f)) for f in ("parse_ttml.py", "add_word_timings.py", "validate_json.py")]
+        pairs.append((os.path.join(SKILLS, "podcast-transcribe", "scripts", "transcribe.py"), os.path.join(nightly, "transcribe.py")))
+        for src, dst in pairs:
+            with open(src, encoding="utf-8") as a, open(dst, encoding="utf-8") as b:
+                self.assertEqual(a.read(), b.read(), f"{dst} が古い（python3 skills/build.py を実行）")
 
     def test_frontmatter_and_syntax(self):
         for name in ("podcast-json", "ttml-to-json", "podcast-transcribe"):

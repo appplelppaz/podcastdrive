@@ -62,7 +62,8 @@ def guess_script(audio_path):
     """Look at other transcripts in the same folder: 'simplified', 'traditional' or 'keep'."""
     simp = trad = 0
     folder = os.path.dirname(os.path.abspath(audio_path))
-    for p in glob.glob(os.path.join(folder, "*.ttml")) + glob.glob(os.path.join(folder, "*.json")):
+    pat = glob.escape(folder)  # フォルダ名の [ ] を記号として扱わない
+    for p in glob.glob(os.path.join(pat, "*.ttml")) + glob.glob(os.path.join(pat, "*.json")):
         try:
             with open(p, encoding="utf-8") as f:
                 text = f.read(200_000)
@@ -237,7 +238,8 @@ def main(argv=None):
     ap.add_argument("--lang", help="zh, en, fr, es …（省略時は自動判定）")
     ap.add_argument("--out", help="出力 TTML（省略時は音声と同じ名前の .ttml）")
     ap.add_argument("--backend", default="auto", choices=["auto", "mlx", "faster"])
-    ap.add_argument("--model", default="large-v3")
+    ap.add_argument("--model", default=os.environ.get("WHISPER_MODEL", "large-v3"),
+                    help="モデル名、またはダウンロード済みのモデルのフォルダ（環境変数 WHISPER_MODEL でも指定できる）")
     ap.add_argument("--script", default="auto", choices=["auto", "keep", "simplified", "traditional"])
     ap.add_argument("--prompt", help="Whisper への最初の指示（番組名・固有名詞を入れると精度が上がる）")
     ap.add_argument("--force", action="store_true", help="同じ名前の TTML があっても作り直す")
@@ -266,7 +268,8 @@ def main(argv=None):
         raise SystemExit("音声から言葉を取り出せませんでした")
     sents = sentences_of(words, lang.split("-")[0] in ("zh", "ja", "ko"))
     dur = duration_of(a.audio) or words[-1][1]
-    note = f"podcast-transcribe: whisper {a.model} ({backend}), word timestamps" + (f", script {script}" if lang.startswith("zh") else "")
+    model_name = os.path.basename(os.path.normpath(a.model)) or a.model
+    note = f"podcast-transcribe: whisper {model_name} ({backend}), word timestamps" + (f", script {script}" if lang.startswith("zh") else "")
     write_ttml(out, sents, lang, dur, note)
     took = time.time() - t0
     print(json.dumps({"ttml": out, "lang": lang, "backend": backend, "model": a.model, "script": script if lang.startswith("zh") else None,
