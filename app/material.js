@@ -8,8 +8,7 @@
 //   - 読み上げ文: 訳、語彙（最大2つ「語 → この文での意味」）、文法・背景（1文）。記号は話し言葉に直す
 // DOM を使わないので、ブラウザでも Node でも動く。
 
-const LATIN_LANGS = new Set(["en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv", "ca", "ro", "cs", "sk", "hu",
-  "fi", "da", "no", "nb", "hr", "sl", "et", "lv", "lt", "ms", "tl", "sw", "ga", "cy", "eu", "gl", "af", "la"]);
+const LATIN_LANGS = new Set(["en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv"]);
 const PHRASE_POS = ["熟語", "句", "慣用", "表現", "idiom", "phrase", "expression", "collocation"];
 const SKIP_POS = ["固有名詞", "proper", "人名", "地名"];
 const CUE_TEXTS = { translation: "訳", vocab: "表現", grammar: "解説", again: "もう一度" };
@@ -255,39 +254,38 @@ export function cleanTerm(term) {
   return strip(t.replace(/\s+/g, " "), " ,");
 }
 
-// 日本語の説明の中の教材言語の語句を見つける文字（言語ごと）。ラテン文字は ł ş ư などの拡張も含める
+// 日本語の説明の中の教材言語（英語・スペイン語・フランス語・中国語）の語句を見つける。
+// ラテン文字はアクセント付きの文字と œ も含める
 const LATIN = "A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF";
-const SCRIPTS = {
-  ko: "\\uAC00-\\uD7AF\\u1100-\\u11FF\\u3130-\\u318F",
-  ru: "\\u0400-\\u04FF", uk: "\\u0400-\\u04FF", bg: "\\u0400-\\u04FF", sr: "\\u0400-\\u04FF",
-  el: "\\u0370-\\u03FF", ar: "\\u0600-\\u06FF", fa: "\\u0600-\\u06FF", he: "\\u0590-\\u05FF",
-  th: "\\u0E00-\\u0E7F", hi: "\\u0900-\\u097F",
-};
 const HAN_LANGS = new Set(["zh", "yue", "cmn"]);
 const HAN = "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF";
 const KANA = /[\u3040-\u30FF\u30FC]/;
 const PARTICLES = "はがをのもとにでやへ";
 
-function scriptRuns(text, chars, minLen) {
+// AI・EU・GDP のような略語は、原文に出てこなければ日本語の声で読む（日本語の説明の中の略語なので）
+function scriptRuns(text, chars, minLen, original) {
   const re = new RegExp(`[${chars}][${chars}'’\\-]*(?:[ ,]+[${chars}][${chars}'’\\-]*)*`, "g");
   const found = [];
   for (const m of text.matchAll(re)) {
-    if (m[0].replace(/[ ,]/g, "").length >= minLen) found.push([m.index, m.index + m[0].length]);
+    // 1文字の語（スペイン語の a・y、フランス語の à・y）は、原文に同じ語があるときだけ
+    if (m[0].replace(/[ ,]/g, "").length < minLen && !(original && /^[a-zà-ÿ]$/.test(m[0]) &&
+      new RegExp(`(^|[^${chars}])${m[0]}([^${chars}]|$)`).test(original))) continue;
+    if (/^[A-Z]{2,5}$/.test(m[0]) && original !== undefined && !original.includes(m[0])) continue;
+    found.push([m.index, m.index + m[0].length]);
   }
   return found;
 }
 
-// 中国語: 漢字は日本語にもあるので、原文にある漢字の並びで、前が仮名でないもの（文頭・記号・括弧の後）だけを中国語とみなす。
-// 後ろが仮名なら助詞（は・が…）のときだけ（「この方法を」「見る」のような日本語は日本語のまま）
+// 中国語（「」の外）: 漢字は日本語にもあるので、原文にある漢字の並びで、日本語の語に見えないものだけを中国語とみなす。
+// 1字なら前が仮名でなく後ろが仮名でない（か助詞）とき、2字以上なら前後が両方とも仮名でないとき（「この方法を」は日本語のまま）
 function hanRuns(text, original) {
   if (!original) return [];
   const found = [];
   for (const m of text.matchAll(new RegExp(`[${HAN}]+`, "g"))) {
     const w = m[0], b = m.index, e = b + w.length;
     if (!original.includes(w)) continue;
-    const before = text[b - 1] || "", after = text[e] || "";
-    if (before && KANA.test(before)) continue;
-    if (after && KANA.test(after) && !PARTICLES.includes(after)) continue;
+    const before = KANA.test(text[b - 1] || ""), after = KANA.test(text[e] || "");
+    if ([...w].length === 1 ? before || (after && !PARTICLES.includes(text[e])) : before && after) continue;
     found.push([b, e]);
   }
   return found;
@@ -296,8 +294,7 @@ function hanRuns(text, original) {
 function splitPlain(text, src, tgt, original) {
   const base = langBase(src);
   let found;
-  if (LATIN_LANGS.has(base)) found = scriptRuns(text, LATIN, 2);
-  else if (SCRIPTS[base]) found = scriptRuns(text, SCRIPTS[base], 1);
+  if (LATIN_LANGS.has(base)) found = scriptRuns(text, LATIN, 2, original);
   else if (HAN_LANGS.has(base)) found = hanRuns(text, original);
   else return [[tgt, text]];
   // 教材言語の語句を囲む「」は、語句と一緒に外す（読み上げで区切りになるだけなので）
@@ -324,7 +321,7 @@ export function splitRuns(text, src, tgt = "ja", original = "") {
   const merged = [];
   for (let [lang, t] of runs) {
     t = t.trim();
-    if (!t || /^[\s、。,.!?！？…‥・\-‐–—]+$/.test(t)) {
+    if (!t || /^[\s、。,.!?！？，；：…‥・\-‐–—]+$/.test(t)) {
       if (merged.length && t.trim()) merged[merged.length - 1][1] += t.trim();
       continue;
     }
@@ -358,7 +355,29 @@ function rankWords(words) {
   return usable.sort((a, b) => score(b) - score(a) || a[0] - b[0]).map(([, w]) => w);
 }
 
-function autoGrammar(text) {
+// 中国語: 文法メモで中国語の語句を書くところ（仮名を含まない「」の中と、「正在＋動詞：…」の「：」より前）の漢字の並びは中国語。
+// ただし「動詞」「時間」のような型の説明の語（原文にないもの）は日本語。「」は読み上げ用に整えるときに消えるので、その前に印を付ける
+const MARK_OPEN = "\uE000", MARK_CLOSE = "\uE001";
+const PLACEHOLDERS = new Set(["動詞", "名詞", "形容詞", "副詞", "助詞", "助動詞", "代名詞", "数詞", "量詞", "介詞", "主語", "述語",
+  "目的語", "補語", "修飾語", "動作", "時間", "場所", "手段", "方法", "人", "物", "事", "数", "数量", "数字", "文", "節", "句",
+  "疑問文", "疑問詞", "名詞句", "動詞句", "主題", "対象", "内容", "結果", "理由", "原因", "条件", "程度", "方向", "状態", "人名",
+  "地名", "否定", "肯定", "単語", "語", "相手", "自分", "誰", "何"]);
+function markHan(part, original) {
+  return part.replace(new RegExp(`[${HAN}]+`, "g"), (w) =>
+    PLACEHOLDERS.has(w) && !(original || "").includes(w) ? w : MARK_OPEN + w + MARK_CLOSE);
+}
+function markQuotedSource(text, src, original) {
+  if (!HAN_LANGS.has(langBase(src))) return text;
+  let t = text.replace(/[「『]([^「」『』]*)[」』]/g, (q, inner) => (KANA.test(inner) ? q : q[0] + markHan(inner, original) + q[q.length - 1]));
+  const head = t.match(/^([^：:＝=。、]+)[：:＝=]/);
+  if (head && !KANA.test(head[1]) && !head[1].includes(MARK_OPEN) && /[＋+…]/.test(head[1])) {
+    t = markHan(head[1], original) + t.slice(head[1].length);
+  }
+  return t;
+}
+const unmark = (t) => t.split(MARK_OPEN).join("[[").split(MARK_CLOSE).join("]]");
+
+function autoGrammar(text, src, original) {
   let t = (text || "").replace(/【訂正】[^\n]*/g, "").trim();
   if (!t) return "";
   t = t.split("\n")[0];
@@ -368,19 +387,19 @@ function autoGrammar(text) {
   if (!sentences.length) return "";
   let s = sentences[0].trim();
   if (sentences.length > 1 && [...s].length <= 12) s = s.replace(/。+$/, "") + "で、" + sentences[1].trim();
-  s = cleanJa(s);
+  s = unmark(cleanJa(markQuotedSource(s, src, original)));
   if (s && !/[。？！]$/.test(s)) s += "。";
   return s;
 }
 
-function autoListening(seg) {
+function autoListening(seg, src) {
   const vocab = [];
   for (const w of rankWords(seg.words || []).slice(0, 2)) {
     const meaning = cleanJa(pickMeaning(w.meaning, seg.translation || ""));
     const term = cleanTerm(w.word);
     if (term && meaning) vocab.push({ term, meaning, note: "" });
   }
-  return { source: "auto", vocab, grammar: autoGrammar(seg.grammar) };
+  return { source: "auto", vocab, grammar: autoGrammar(seg.grammar, src, seg.original) };
 }
 
 // 語彙の意味から「ここでは」「〜という意味です」のような決まり文句を外す（この文での意味なのは当然なので）
@@ -393,11 +412,11 @@ export function plainMeaning(text) {
 }
 
 // 以前に取り込んだ教材（読み上げの文を保存済み）にも同じ整え方を当てる:
-// 語彙の意味の決まり文句を外し、文法の説明は教材言語の語句を見分け直す（中国語などが日本語の声で読まれないように）
+// 語彙の意味の決まり文句を外し、文法の説明は元の文法メモから作り直して教材言語の語句を見分け直す
+// （中国語などが日本語の声で読まれないように）
 export function tidySpeech(doc) {
   const tgt = doc.targetLanguage || "ja";
   const src = doc.sourceLanguage || "en";
-  const joiner = LATIN_LANGS.has(langBase(src)) || SCRIPTS[langBase(src)] ? " " : "";
   for (const seg of doc.segments || []) {
     if (!seg.parts) continue;
     for (const p of seg.parts) {
@@ -405,18 +424,25 @@ export function tidySpeech(doc) {
         p.text = plainMeaning(p.text.replace(/。+$/, "")).replace(/。+$/, "") + "。";
       }
     }
+    const li = seg.listening;
+    if (li && li.source === "auto" && seg.display && typeof seg.display.grammar === "string") {
+      li.grammar = autoGrammar(seg.display.grammar, src, seg.original);
+    }
     const idx = seg.parts.map((p, i) => (p.type === "speech" && p.group === "grammar" ? i : -1)).filter((i) => i >= 0);
-    if (!idx.length) continue;
-    const text = idx.map((i) => seg.parts[i].text).join(joiner);
-    const fresh = splitRuns(text, src, tgt, seg.original || "").map(([lang, t]) => ({ type: "speech", group: "grammar", lang, text: t }));
+    if (!idx.length || !li || !li.grammar) continue;
+    const fresh = splitRuns(li.grammar, src, tgt, seg.original || "").map(([lang, t]) => ({ type: "speech", group: "grammar", lang, text: t }));
     seg.parts.splice(idx[0], idx.length, ...fresh);
   }
   return doc;
 }
 
+// 語彙の意味は日本語。中の原語（社会党、Parti Socialiste など）はラテン文字の言語だけ見分ける（漢字は日本語の意味と区別できないので）
+const meaningRuns = (text, src, tgt, original) =>
+  (LATIN_LANGS.has(langBase(src)) ? splitRuns(text, src, tgt, original) : [[tgt, text]]);
+
 const vocabRuns = (item, src, tgt, original = "") => [
   [src, item.term],
-  [tgt, plainMeaning(item.meaning.replace(/。+$/, "")).replace(/。+$/, "") + "。"],
+  ...meaningRuns(plainMeaning(item.meaning.replace(/。+$/, "")).replace(/。+$/, "") + "。", src, tgt, original),
   ...(item.note ? splitRuns(item.note, src, tgt, original) : []),
 ];
 
@@ -671,7 +697,7 @@ export function buildMaterial({ json, ttml, fix, name }) {
       li = { source: "authored", vocab: a.vocab.map((v) => ({ ...v })), grammar: a.grammar || "" };
       if (a.translationSpeech) li.translationSpeech = a.translationSpeech;
     } else {
-      li = autoListening(s);
+      li = autoListening(s, src);
     }
     for (const v of li.vocab) if (v.note === undefined) v.note = "";
     if (li.vocab.length > 2) {
