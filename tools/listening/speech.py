@@ -192,9 +192,21 @@ def estimate_seconds(runs, target_lang="ja"):
     return total
 
 
+# 語彙の意味から「ここでは」「〜という意味です」のような決まり文句を外す（app/material.js の plainMeaning と同じ）
+MEANING_HEAD = re.compile(r"^(?:ここでは|ここでの意味は|この文では|この文での意味は|この文脈では|文脈上は?)[、,，\s]*")
+MEANING_TAIL = re.compile(r"[、,，\s]*(?:(?:という|との)意味(?:です|だ|になります|で使われています)?|[、,，]\s*の?意味です|の意味(?:です|になります))[。.]*$")
+
+
+def plain_meaning(text):
+    t = MEANING_TAIL.sub("", MEANING_HEAD.sub("", text.strip()))
+    t = re.sub(r"^[、,，\s]+|[、,，\s]+$", "", t)
+    t = re.sub(r"^「([^「」]*)」$", r"\1", t)
+    return t or text.strip()
+
+
 def vocab_runs(item, source_lang, target_lang="ja"):
     runs = [(source_lang, item["term"])]
-    runs.append((target_lang, item["meaning"].rstrip("。") + "。"))
+    runs.append((target_lang, plain_meaning(item["meaning"].rstrip("。")).rstrip("。") + "。"))
     if item.get("note"):
         runs.extend(split_runs(item["note"], source_lang, target_lang))
     return runs

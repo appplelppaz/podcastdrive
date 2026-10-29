@@ -340,9 +340,31 @@ function autoListening(seg) {
   return { source: "auto", vocab, grammar: autoGrammar(seg.grammar) };
 }
 
+// 語彙の意味から「ここでは」「〜という意味です」のような決まり文句を外す（この文での意味なのは当然なので）
+const MEANING_HEAD = /^(?:ここでは|ここでの意味は|この文では|この文での意味は|この文脈では|文脈上は?)[、,，\s]*/;
+const MEANING_TAIL = /[、,，\s]*(?:(?:という|との)意味(?:です|だ|になります|で使われています)?|[、,，]\s*の?意味です|の意味(?:です|になります))[。.]*$/;
+export function plainMeaning(text) {
+  const t = text.trim().replace(MEANING_HEAD, "").replace(MEANING_TAIL, "").replace(/^[、,，\s]+|[、,，\s]+$/g, "")
+    .replace(/^「([^「」]*)」$/, "$1");
+  return t || text.trim();
+}
+
+// 以前に取り込んだ教材（読み上げの文を保存済み）にも同じ整え方を当てる
+export function tidyVocabSpeech(doc) {
+  const tgt = doc.targetLanguage || "ja";
+  for (const seg of doc.segments || []) {
+    for (const p of seg.parts || []) {
+      if (p.type === "speech" && p.group === "vocab" && p.lang === tgt) {
+        p.text = plainMeaning(p.text.replace(/。+$/, "")).replace(/。+$/, "") + "。";
+      }
+    }
+  }
+  return doc;
+}
+
 const vocabRuns = (item, src, tgt) => [
   [src, item.term],
-  [tgt, item.meaning.replace(/。+$/, "") + "。"],
+  [tgt, plainMeaning(item.meaning.replace(/。+$/, "")).replace(/。+$/, "") + "。"],
   ...(item.note ? splitRuns(item.note, src, tgt) : []),
 ];
 
