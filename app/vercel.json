@@ -3,7 +3,8 @@
     { "source": "/ipad", "destination": "/ipad/", "permanent": false }
   ],
   "rewrites": [
+    { "source": "/ipad/", "destination": "/index.html" },
     { "source": "/ipad/manifest.webmanifest", "destination": "/manifest-ipad.webmanifest" },
-    { "source": "/ipad/:path*", "destination": "/:path*" }
+    { "source": "/ipad/:path+", "destination": "/:path+" }
   ]
 }
