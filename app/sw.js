@@ -1,7 +1,8 @@
 // アプリ本体をキャッシュしてオフラインで起動できるようにする。教材は IndexedDB にある。
-const VERSION = "listening-v16";
+const VERSION = "listening-v17";
 const SHELL = ["./", "index.html", "app.css", "app.js", "engine.js", "store.js", "material.js", "boundary.js", "subtitle.js", "manifest.webmanifest",
-  "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
+  "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png",
+  "fonts/ahl-latin-400.woff2", "fonts/ahl-latin-700.woff2", "fonts/ahl-latin-ext-400.woff2", "fonts/ahl-latin-ext-700.woff2"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
