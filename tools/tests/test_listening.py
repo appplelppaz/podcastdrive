@@ -148,6 +148,17 @@ class SpeechTest(unittest.TestCase):
             got = [list(r) for r in speech.split_runs(g, lang, "ja", original=original)]
             self.assertEqual(got, want, grammar)
 
+    def test_speak_is_used_as_written(self):
+        sp = {"vocab": [["认真", "ここでは、真剣に、という意味です"]],
+              "grammar": [["zh", "「原来…才是…」"], ["ja", "は「実は〜こそが…だった」という気づきを表す"]]}
+        li = speech.speak_listening(sp, "zh")
+        self.assertEqual(li["vocab"], [{"term": "认真", "meaning": "真剣に", "note": ""}])
+        self.assertEqual(li["grammarRuns"], [["zh", "原来…才是…"], ["ja", "は実はこそが、だったという気づきを表す。"]])
+        parts = speech.build_parts("訳。", li, "zh", "ja", "不急着要证明什么，原来才是善待自己最好的方法。")
+        self.assertEqual([(p["lang"], p["text"]) for p in parts if p["type"] == "speech"],
+                         [("ja", "訳。"), ("zh", "认真"), ("ja", "真剣に。"), ("zh", "原来…才是…"),
+                          ("ja", "は実はこそが、だったという気づきを表す。")])
+
     def test_meaning_source_words(self):
         item = {"term": "PS", "meaning": "社会党、Parti Socialiste"}
         self.assertEqual(speech.vocab_runs(item, "fr", original="le PS"),
@@ -339,6 +350,12 @@ class MaterialParityTest(TempDir):
                             {"word": "Tehran", "meaning": "テヘラン", "pos": "固有名詞"}]
         segs[1]["grammar"] = "not much — 否定。「あまり〜ない」（量）を表す。短い答えでよく使う。"
         cases = [(segs, None)]
+        # 読み上げ用の指定（speak）がある回: 指定どおりの言語で読む（推測しない）
+        spoken = [dict(x) for x in segs]
+        spoken[0]["speak"] = {"vocab": [{"term": "went up", "meaning": "上がった"}, ["oops"]],
+                              "grammar": [{"lang": "en", "text": "went up"}, {"lang": "ja", "text": "は「上がった」という過去形"}]}
+        spoken[1]["speak"] = {"vocab": [["not much", "ほとんどない"]], "grammar": []}
+        cases.append((spoken, None))
         fix = {"format": "podcast-listening-fix", "formatVersion": 1, "segments": {
             "1#1": {"translation": "物価が上がった。", "vocab": [["went up", "ここでは、上がった、という意味です", "句動詞", ""]]},
             "1#2": {"translation": "人々は心配している。", "vocab": [], "grammar": "[[worried]]は形容詞です。"},

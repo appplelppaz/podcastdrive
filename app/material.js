@@ -103,10 +103,35 @@ export function loadEpisode(raw) {
       }
     }
     if (Array.isArray(s.translationParts)) seg.translationParts = s.translationParts.map((t) => String(t).trim());
+    if (s.speak) {
+      const sp = parseSpeak(s.speak);
+      if (sp.warning) warnings.push(`区間 ${id} の speak: ${sp.warning}`);
+      if (sp.vocab.length || sp.grammar.length) seg.speak = { vocab: sp.vocab, grammar: sp.grammar };
+    }
     out.push(seg);
   });
   out.sort((a, b) => a.begin - b.begin);
   return { metadata: meta, segments: out, warnings };
+}
+
+// 読み上げ用の指定（speak）: 語彙は [原語, 日本語の意味]、文法は [言語, 文] の並び。言語を作る段階で決めておくので、推測しない。
+// {"vocab": [["认真", "真剣に"]], "grammar": [["zh", "原来"], ["ja", "と"], ["zh", "才是"], ["ja", "で、実はこちらこそがそうだった、という気づきを表します。"]]}
+// 項目は {"term", "meaning"} / {"lang", "text"} の形でもよい。Language Drill はこの項目を使わない
+export function parseSpeak(raw) {
+  const vocab = [], grammar = [];
+  let bad = 0;
+  for (const v of (raw && raw.vocab) || []) {
+    const [term, meaning] = Array.isArray(v) ? v : [v && v.term, v && v.meaning];
+    if (typeof term === "string" && typeof meaning === "string" && term.trim() && meaning.trim()) vocab.push([term.trim(), meaning.trim()]);
+    else bad++;
+  }
+  for (const g of (raw && raw.grammar) || []) {
+    const [lang, text] = Array.isArray(g) ? g : [g && g.lang, g && g.text];
+    if (typeof lang === "string" && /^[a-z]{2,3}([-_][A-Za-z0-9]+)*$/i.test(lang.trim()) && typeof text === "string" && text.trim()) {
+      grammar.push([lang.trim(), text.trim()]);
+    } else bad++;
+  }
+  return { vocab, grammar, warning: bad ? `読めない項目 ${bad} 件を使いません` : "" };
 }
 
 // ---------------------------------------------------------------- TTML（Apple Podcasts / Whisper）
@@ -216,6 +241,7 @@ function splitByTtmlSentences(seg, ttml) {
     const words = seg.words.filter((w) => norm(w.word) && norm(text).includes(norm(w.word)));
     const piece = { ...seg, begin: b, end: e, original: text, translation: parts[k], words, grammar: k === 0 ? seg.grammar : "", part: k + 1 };
     delete piece.translationParts;
+    if (k > 0) delete piece.speak;
     return piece;
   });
 }
@@ -402,6 +428,19 @@ function autoListening(seg, src) {
   return { source: "auto", vocab, grammar: autoGrammar(seg.grammar, src, seg.original) };
 }
 
+// 読み上げ用の指定（speak）から、聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を読み上げ向けに整える）
+function speakListening(sp, src, tgt) {
+  const vocab = sp.vocab.map(([term, meaning]) => ({ term, meaning: plainMeaning(cleanJa(meaning)), note: "" }));
+  const grammarRuns = [];
+  for (const [lang, text] of sp.grammar) {
+    const t = langBase(lang) === langBase(tgt) ? cleanJa(text) : strip(text.replace(/[「」『』]/g, ""), " ");
+    if (t) grammarRuns.push([langBase(lang) === langBase(tgt) ? tgt : lang, t]);
+  }
+  const last = grammarRuns[grammarRuns.length - 1];
+  if (last && last[0] === tgt && !/[。？！]$/.test(last[1])) last[1] += "。";
+  return { source: "speak", vocab, grammar: grammarRuns.map((r) => r[1]).join(" "), grammarRuns };
+}
+
 // 語彙の意味から「ここでは」「〜という意味です」のような決まり文句を外す（この文での意味なのは当然なので）
 const MEANING_HEAD = /^(?:ここでは|ここでの意味は|この文では|この文での意味は|この文脈では|文脈上は?)[、,，\s]*/;
 const MEANING_TAIL = /[、,，\s]*(?:(?:という|との)意味(?:です|だ|になります|で使われています)?|[、,，]\s*の?意味です|の意味(?:です|になります))[。.]*$/;
@@ -429,7 +468,7 @@ export function tidySpeech(doc) {
       li.grammar = autoGrammar(seg.display.grammar, src, seg.original);
     }
     const idx = seg.parts.map((p, i) => (p.type === "speech" && p.group === "grammar" ? i : -1)).filter((i) => i >= 0);
-    if (!idx.length || !li || !li.grammar) continue;
+    if (!idx.length || !li || !li.grammar || li.grammarRuns) continue; // speak の指定どおりの教材は作り直さない
     const fresh = splitRuns(li.grammar, src, tgt, seg.original || "").map(([lang, t]) => ({ type: "speech", group: "grammar", lang, text: t }));
     seg.parts.splice(idx[0], idx.length, ...fresh);
   }
@@ -455,15 +494,20 @@ function estimateSeconds(runs, tgt) {
   return total;
 }
 
+// speak で指定された語彙・文法は、指定どおりの言語で読む（推測しない）
+const itemRuns = (li, item, src, tgt, original) => (li.source === "speak"
+  ? [[src, item.term], [tgt, item.meaning.replace(/。+$/, "") + "。"]] : vocabRuns(item, src, tgt, original));
+const grammarRuns = (li, src, tgt, original) => li.grammarRuns || splitRuns(li.grammar, src, tgt, original);
+
 function explanationSeconds(li, src, tgt) {
   const runs = [];
   if (li.vocab && li.vocab.length) {
     runs.push([tgt, CUE_TEXTS.vocab]);
-    for (const item of li.vocab) runs.push(...vocabRuns(item, src, tgt));
+    for (const item of li.vocab) runs.push(...itemRuns(li, item, src, tgt));
   }
   if (li.grammar) {
     runs.push([tgt, CUE_TEXTS.grammar]);
-    runs.push(...splitRuns(li.grammar, src, tgt));
+    runs.push(...grammarRuns(li, src, tgt));
   }
   return estimateSeconds(runs, tgt);
 }
@@ -487,11 +531,11 @@ function buildParts(translation, li, src, tgt, original = "") {
   }
   if (li.vocab && li.vocab.length) {
     parts.push({ type: "cue", cue: "vocab", group: "vocab" });
-    for (const item of li.vocab) for (const [lang, text] of vocabRuns(item, src, tgt, original)) parts.push(speech("vocab", lang, text));
+    for (const item of li.vocab) for (const [lang, text] of itemRuns(li, item, src, tgt, original)) parts.push(speech("vocab", lang, text));
   }
   if (li.grammar) {
     parts.push({ type: "cue", cue: "grammar", group: "grammar" });
-    for (const [lang, text] of splitRuns(li.grammar, src, tgt, original)) parts.push(speech("grammar", lang, text));
+    for (const [lang, text] of grammarRuns(li, src, tgt, original)) parts.push(speech("grammar", lang, text));
   }
   parts.push({ type: "cue", cue: "again", group: "again" });
   parts.push({ type: "original", role: "second" });
@@ -576,6 +620,10 @@ function mergeFragments(segs, lang) {
       prev.words = prev.words.concat(s.words);
       prev.grammar = [prev.grammar, s.grammar].filter(Boolean).join("\n");
       if (s.pinyin) prev.pinyin = ((prev.pinyin || "") + " " + s.pinyin).trim();
+      if (prev.speak || s.speak) {
+        const a = prev.speak || { vocab: [], grammar: [] }, b = s.speak || { vocab: [], grammar: [] };
+        prev.speak = { vocab: a.vocab.concat(b.vocab), grammar: a.grammar.length ? a.grammar : b.grammar };
+      }
       prev.end = s.end;
       prev.sourceIds.push(s.id);
       continue;
@@ -696,6 +744,8 @@ export function buildMaterial({ json, ttml, fix, name }) {
     if (a) {
       li = { source: "authored", vocab: a.vocab.map((v) => ({ ...v })), grammar: a.grammar || "" };
       if (a.translationSpeech) li.translationSpeech = a.translationSpeech;
+    } else if (s.speak) {
+      li = speakListening(s.speak, src, tgt);
     } else {
       li = autoListening(s, src);
     }

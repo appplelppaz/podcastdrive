@@ -9,11 +9,17 @@ Errors (exit code 1) — the file must be fixed:
   - translations shifted against the originals (numbers in the original missing
     from the translation in many segments — the typical one-off shift)
   - with the TTML: segments whose original does not match the words spoken at its time
+  - speak (what the listening app reads aloud, and in which language) missing on a
+    segment that has words or grammar, or not in the form
+    {"vocab": [["原語", "日本語の意味"]], "grammar": [["言語", "文"], ...]} with the
+    languages limited to the source language and "ja"
 Warnings — fix when easy:
   - pinyin / reading missing for Chinese
   - wordTimings missing although the TTML has word times (run add_word_timings.py)
   - notes that read badly aloud in the listening app (see the skill's
     "聞き流しモード向けの書き方")
+  - speak parts that look like the wrong language (source-language words inside a
+    "ja" part, Japanese inside a source-language part) or that use symbols
 """
 import json
 import os
@@ -26,6 +32,50 @@ from add_word_timings import match_ratio  # noqa: E402
 
 TIME = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}$")
 FULLWIDTH = str.maketrans("０１２３４５６７８９", "0123456789")
+KANA = re.compile("[\u3040-\u30ff]")
+HAN = re.compile("[\u3400-\u9fff\uf900-\ufaff]{2,}")
+LATIN_WORD = re.compile(r"[A-Za-z\u00c0-\u024f\u1e00-\u1eff]{2,}")
+SPEAK_SYMBOLS = re.compile(r"[→⇒／/＝=＋+〜～…「」『』（）()]")
+
+
+def check_speak(sp, lang, original, where, errors, warnings):
+    """読み上げ用の指定（speak）の形と、言語の取り違えらしいところを確かめる。"""
+    if not isinstance(sp, dict):
+        errors.append(f"{where}: speak は {{\"vocab\": [...], \"grammar\": [...]}} にしてください")
+        return
+    vocab, grammar = sp.get("vocab", []), sp.get("grammar", [])
+    if not isinstance(vocab, list) or not all(isinstance(v, list) and len(v) == 2 and all(isinstance(x, str) and x.strip() for x in v)
+                                             for v in vocab):
+        errors.append(f"{where}: speak.vocab は [[\"原語\", \"日本語の意味\"], ...] にしてください（なければ []）")
+        vocab = []
+    if not isinstance(grammar, list) or not all(isinstance(g, list) and len(g) == 2 and all(isinstance(x, str) and x.strip() for x in g)
+                                               for g in grammar):
+        errors.append(f"{where}: speak.grammar は [[\"言語\", \"文\"], ...] にしてください（なければ []）")
+        grammar = []
+    if len(vocab) > 2:
+        warnings.append(f"{where}: speak.vocab は2つまで（3つ目以降は読み上げません）")
+    for term, meaning in vocab:
+        if KANA.search(term):
+            warnings.append(f"{where}: speak.vocab の原語に仮名があります（{term}）")
+        if lang != "zh" and LATIN_WORD.search(meaning) and not re.fullmatch(r"[A-Z]{2,5}", LATIN_WORD.search(meaning).group(0)):
+            warnings.append(f"{where}: speak.vocab の意味に原語があります（{meaning}）。意味は日本語の声で読みます")
+    for g_lang, text in grammar:
+        base = g_lang.split("-")[0].lower()
+        if base not in (lang, "ja"):
+            errors.append(f"{where}: speak.grammar の言語は \"{lang}\" か \"ja\" にしてください（{g_lang}）")
+        elif base == "ja":
+            if lang == "zh":
+                hit = [w for w in HAN.findall(text) if w in original]
+                if hit or (not KANA.search(text) and HAN.search(text)):
+                    warnings.append(f"{where}: speak.grammar の \"ja\" の部分に中国語らしい語があります（{text}）。中国語は \"zh\" に分けてください")
+            elif any(not re.fullmatch(r"[A-Z]{2,5}", w) for w in LATIN_WORD.findall(text)):
+                warnings.append(f"{where}: speak.grammar の \"ja\" の部分に原語があります（{text}）。原語は \"{lang}\" に分けてください")
+            if SPEAK_SYMBOLS.search(text):
+                warnings.append(f"{where}: speak.grammar の日本語は記号（→ ／ ＝ ＋ 〜 … 「」 括弧）を使わず、読み上げる文で書いてください（{text}）")
+        elif KANA.search(text):
+            warnings.append(f"{where}: speak.grammar の \"{g_lang}\" の部分に仮名があります（{text}）。日本語は \"ja\" に分けてください")
+    if len("".join(t for _, t in grammar)) > 90:
+        warnings.append(f"{where}: speak.grammar が長すぎます（読み上げは1文・60字程度まで）")
 
 
 def _plain_numbers(text):
@@ -71,7 +121,7 @@ def validate(json_path, ttml_path=None):
         return ["segments がありません"], warnings
 
     prev_id, prev_begin = 0, -1.0
-    empty_tr, mism = [], []
+    empty_tr, mism, no_speak = [], [], []
     with_numbers = 0
     for i, s in enumerate(segs):
         where = f"segments[{i}] (id {s.get('id')})"
@@ -115,6 +165,11 @@ def validate(json_path, ttml_path=None):
             with_numbers += 1
             if not numbers_consistent(s.get("original", ""), s.get("translation", "")):
                 mism.append(s.get("id"))
+        # 聞き流しアプリが読み上げる内容と言語（speak）
+        if "speak" in s:
+            check_speak(s["speak"], lang, str(s.get("original") or ""), where, errors, warnings)
+        elif s.get("words") or str(s.get("grammar") or "").strip():
+            no_speak.append(s.get("id"))
         # 聞き流しモード: 文法の1行目を読み上げる。語の意味は最初の項目を読み上げる
         lines = (s.get("grammar") or "").split("\n")
         if any("【訂正】" in ln and ln.index("【訂正】") > 0 for ln in lines):
@@ -125,6 +180,8 @@ def validate(json_path, ttml_path=None):
 
     if empty_tr:
         errors.append(f"translation が空の区間: {empty_tr[:20]}")
+    if no_speak:
+        errors.append(f"speak（聞き流しアプリが読み上げる語彙・文法とその言語）がない区間: {no_speak[:20]}")
     if mism:
         msg = f"原文の数字が訳に見当たらない区間: {mism[:20]}"
         if with_numbers and len(mism) >= 3 and len(mism) / with_numbers >= 0.3:

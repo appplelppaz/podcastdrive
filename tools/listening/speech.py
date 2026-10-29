@@ -291,16 +291,43 @@ def vocab_runs(item, source_lang, target_lang="ja", original=""):
     return runs
 
 
+def speak_listening(sp, source_lang, target_lang="ja"):
+    """読み上げ用の指定（speak）から聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を整える）。"""
+    vocab = [{"term": term, "meaning": plain_meaning(clean_ja(meaning)), "note": ""} for term, meaning in sp["vocab"]]
+    runs = []
+    for lang, text in sp["grammar"]:
+        is_target = lang_base(lang) == lang_base(target_lang)
+        t = clean_ja(text) if is_target else re.sub(r"[「」『』]", "", text).strip(" ")
+        if t:
+            runs.append([target_lang if is_target else lang, t])
+    if runs and runs[-1][0] == target_lang and not runs[-1][1].endswith(("。", "？", "！")):
+        runs[-1][1] += "。"
+    return {"source": "speak", "vocab": vocab, "grammar": " ".join(r[1] for r in runs), "grammarRuns": runs}
+
+
+def _item_runs(listening, item, source_lang, target_lang, original=""):
+    # speak で指定された語彙は、指定どおりの言語で読む（推測しない）
+    if listening.get("source") == "speak":
+        return [(source_lang, item["term"]), (target_lang, item["meaning"].rstrip("。") + "。")]
+    return vocab_runs(item, source_lang, target_lang, original)
+
+
+def _grammar_runs(listening, source_lang, target_lang, original=""):
+    if listening.get("grammarRuns") is not None:
+        return [tuple(r) for r in listening["grammarRuns"]]
+    return split_runs(listening["grammar"], source_lang, target_lang, original=original)
+
+
 def explanation_seconds(listening, source_lang, target_lang="ja", cue_texts=None):
     cues = cue_texts or CUE_TEXTS["ja"]
     runs = []
     if listening.get("vocab"):
         runs.append((target_lang, cues["vocab"]))
         for item in listening["vocab"]:
-            runs.extend(vocab_runs(item, source_lang, target_lang))
+            runs.extend(_item_runs(listening, item, source_lang, target_lang))
     if listening.get("grammar"):
         runs.append((target_lang, cues["grammar"]))
-        runs.extend(split_runs(listening["grammar"], source_lang, target_lang))
+        runs.extend(_grammar_runs(listening, source_lang, target_lang))
     return estimate_seconds(runs, target_lang)
 
 
@@ -329,11 +356,11 @@ def build_parts(translation_text, listening, source_lang, target_lang="ja", orig
     if listening.get("vocab"):
         parts.append({"type": "cue", "cue": "vocab", "group": "vocab"})
         for item in listening["vocab"]:
-            for lang, text in vocab_runs(item, source_lang, target_lang, original):
+            for lang, text in _item_runs(listening, item, source_lang, target_lang, original):
                 parts.append(_speech("vocab", lang, text))
     if listening.get("grammar"):
         parts.append({"type": "cue", "cue": "grammar", "group": "grammar"})
-        for lang, text in split_runs(listening["grammar"], source_lang, target_lang, original=original):
+        for lang, text in _grammar_runs(listening, source_lang, target_lang, original):
             parts.append(_speech("grammar", lang, text))
     parts.append({"type": "cue", "cue": "again", "group": "again"})
     parts.append({"type": "original", "role": "second"})

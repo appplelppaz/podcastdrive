@@ -7,7 +7,10 @@ TTML の文と、訳・語彙・文法のデータから、Language Drill と聞
 
 訳のデータは _work/<TTMLの名前>/ に trans_001.json, trans_002.json … として置く（1ファイル40文まで）:
     {"12": {"t": "日本語訳", "w": [{"word": "…", "meaning": "…", "pos": "…", "reading": "（中国語のみ）"}],
-            "g": "文法の説明（なければ空）", "p": "（中国語のみ）全文のピンイン"}}
+            "g": "文法の説明（なければ空）", "p": "（中国語のみ）全文のピンイン",
+            "s": {"v": [["原語", "日本語の意味"]], "g": [["zh", "原来"], ["ja", "と"], ["zh", "才是"], ["ja", "で、実はこちらこそがそうだった、という気づきを表します。"]]}}}
+- "s" は聞き流しアプリが読み上げる語彙（2つまで）と文法と、その言語。JSON の "speak" になる（Language Drill は使わない）。
+  語彙・文法がない文は "s": {"v": [], "g": []}。
 - キーは dump で表示された番号（文字列）。1つの番号に1つの訳。番号をまたいで訳をまとめたり分けたりしない。
 - 原文の誤認識を直すときだけ "o": "直した原文" を入れる（直した理由は g の別の行に【訂正】として書く）。
 """
@@ -97,6 +100,9 @@ def cmd_build(ttml):
                "translation": str(d["t"]).strip(), "words": words, "grammar": str(d.get("g") or "").strip()}
         if zh:
             obj["pinyin"] = str(d.get("p") or "").strip()
+        sp = d.get("s")
+        if isinstance(sp, dict):
+            obj["speak"] = {"vocab": sp.get("v", []), "grammar": sp.get("g", [])}
         if "wordTimings" in s:
             obj["wordTimings"] = s["wordTimings"]
         out.append(obj)

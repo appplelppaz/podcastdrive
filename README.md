@@ -98,6 +98,9 @@ Claude のスキルで、Language Drill とこのアプリの両方で使える 
 
 - JSON の既存の項目（`begin` `end` `original` `translation` `words` `grammar` `pinyin`）は変えず、
   各文に `wordTimings`（`[[開始秒, 終了秒, "語"], ...]`）を足します。Language Drill は知らない項目を使いません。
+- 各文の `speak` に、聞き流しアプリが読み上げる語彙（`[原語, 日本語の意味]` を2つまで）と文法（`[言語, 文]` の並び）を書きます。
+  アプリは `speak` に書かれた言語の声で読み、推測しません（`speak` がない古い JSON だけ、文字の種類と原文から言語を推測します）。
+  `validate_json.py` は、語彙か文法がある文に `speak` がないとエラーにします。
 - 共通スクリプト（`podcast-json/scripts/`）: `parse_ttml.py`（文ごとに分け、単語の時刻も返す）、
   `add_word_timings.py`（既存の JSON に単語の時刻だけを足す）、`validate_json.py`（訳のずれ・時刻・形の確認）。
 - `podcast-transcribe/scripts/transcribe.py`: Whisper large-v3（Mac では mlx-whisper、ほかは faster-whisper）で
