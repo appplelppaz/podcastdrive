@@ -14,6 +14,10 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
 <script>
+  // iPad 版（/ipad/ または ?layout=ipad）: 一覧と文の一覧を左右に並べる
+  if (/^\/ipad(\/|$)/.test(location.pathname) || new URLSearchParams(location.search).get("layout") === "ipad") {
+    document.documentElement.classList.add("split");
+  }
   // アプリ本体（モジュール）が読めない・止まったときに、理由を画面に出す（iPhone では開発者ツールが見られないため）。
   // 古いオフライン用の保存（Service Worker とキャッシュ）が原因のことが多いので、一度だけ自動で消して読み直す。
   // 教材（IndexedDB）・設定・再生位置（localStorage）は消さない。
@@ -120,6 +124,8 @@
   <ol id="sentences" class="sentences"></ol>
   <button id="epDelete" class="link danger" type="button">Delete episode</button>
 </main>
+
+<main id="paneEmpty" class="screen pane-empty" hidden><p>Select an episode</p></main>
 
 <main id="settingsScreen" class="screen" hidden>
   <header class="bar"><button id="settingsBack" class="icon-btn back-btn" type="button" aria-label="Back">‹</button></header>
