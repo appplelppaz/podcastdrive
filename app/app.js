@@ -1,6 +1,7 @@
 import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 import { alignSubtitle } from "./subtitle.js";
+import { tidyVocabSpeech } from "./material.js";
 
 const $ = (id) => document.getElementById(id);
 let settings = clampSettings(store.loadSettings(DEFAULTS));
@@ -193,6 +194,7 @@ function start(row, audio, how) {
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   audioUrl = URL.createObjectURL(audio);
   const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id)) : 0;
+  tidyVocabSpeech(row.doc);
   engine = new ListeningEngine({ doc: row.doc, audioUrl, mode: row.mode, el: $("audio"), settings, position: { segIndex } });
   window.__engine = engine; // 動作確認用
   window.__systemPause = systemPause;

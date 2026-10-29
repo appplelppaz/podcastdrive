@@ -118,6 +118,15 @@ class SpeechTest(unittest.TestCase):
         self.assertEqual(speech.pick_meaning("衰退しつつある、低迷している", "経済が低迷している"), "低迷している")
         self.assertEqual(speech.pick_meaning("ようこそ", "x"), "ようこそ")
 
+    def test_plain_meaning(self):
+        self.assertEqual(speech.plain_meaning("ここでは、真剣に、という意味です"), "真剣に")
+        self.assertEqual(speech.plain_meaning("ここでは「真剣に」という意味"), "真剣に")
+        self.assertEqual(speech.plain_meaning("この文では、価格、の意味です。"), "価格")
+        for keep in ("意味", "人生の意味", "選択肢、オプション"):
+            self.assertEqual(speech.plain_meaning(keep), keep)
+        self.assertEqual(speech.vocab_runs({"term": "认真", "meaning": "ここでは、真剣に、という意味です"}, "zh"),
+                         [("zh", "认真"), ("ja", "真剣に。")])
+
     def test_auto_listening_limits(self):
         seg = {"translation": "本日は影響を与えている経済を", "grammar": "how ... — 間接疑問文。how が名詞節を導く。",
                "words": [{"word": "a", "meaning": "あ", "pos": "名詞"},
@@ -270,7 +279,7 @@ class MaterialParityTest(TempDir):
         segs[1]["grammar"] = "not much — 否定。「あまり〜ない」（量）を表す。短い答えでよく使う。"
         cases = [(segs, None)]
         fix = {"format": "podcast-listening-fix", "formatVersion": 1, "segments": {
-            "1#1": {"translation": "物価が上がった。", "vocab": [["went up", "上がった", "句動詞", ""]]},
+            "1#1": {"translation": "物価が上がった。", "vocab": [["went up", "ここでは、上がった、という意味です", "句動詞", ""]]},
             "1#2": {"translation": "人々は心配している。", "vocab": [], "grammar": "[[worried]]は形容詞です。"},
             "2": {"translation": None, "vocab": [["not much", "ほとんどない", "熟語", "短い答えです。"]],
                   "translationSpeech": "たいしたことはない。"}}}
