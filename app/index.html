@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Listen">
-<title>Listening Mode</title>
+<meta name="apple-mobile-web-app-title" content="聞き流し">
+<title>聞き流し</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
@@ -75,62 +75,92 @@
 </script>
 </head>
 <body>
-<main id="setup" class="screen">
-  <header class="bar"><h1>Listening</h1></header>
+<main id="home" class="screen">
+  <header class="bar">
+    <h1>聞き流し</h1>
+    <button id="openSettings" class="icon-btn" type="button" aria-label="設定"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.5 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+  </header>
   <div id="appError" class="status error" role="alert" hidden></div>
 
-  <section aria-labelledby="libraryTitle">
-    <h2 id="libraryTitle">Library</h2>
-    <ul id="library" class="library"></ul>
-    <p id="libraryEmpty" class="hint">No episodes yet. Add one below to start listening.</p>
-    <label class="button file">
-      Add episodes
-      <input id="fileInput" type="file" multiple>
-    </label>
-    <p class="hint">Choose each episode's <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together, plus its <code>.fix.json</code> if it has one. You can add several episodes at once.</p>
-    <p id="importStatus" class="status" role="status"></p>
-  </section>
-
-  <section aria-labelledby="settingsTitle">
-    <h2 id="settingsTitle">Settings</h2>
-    <div class="settings">
-      <h3>Playback</h3>
-      <div class="row"><span>Play the original first</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
-      <div class="row"><span>Play it again after the notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
-      <div class="row slider"><label for="originalRate">Original speed <output data-for="originalRate"></output></label>
-        <input id="originalRate" data-key="originalRate" type="range" min="0.5" max="1.5" step="0.05"></div>
-      <div class="row slider"><label for="translationRate">Translation speed <output data-for="translationRate"></output></label>
-        <input id="translationRate" data-key="translationRate" type="range" min="0.5" max="2" step="0.05"></div>
-      <div class="row slider"><label for="explanationRate">Notes speed <output data-for="explanationRate"></output></label>
-        <input id="explanationRate" data-key="explanationRate" type="range" min="0.5" max="2" step="0.05"></div>
-      <div class="row slider"><label for="gapSeconds">Pause between sentences <output data-for="gapSeconds"></output></label>
-        <input id="gapSeconds" data-key="gapSeconds" type="range" min="0" max="3" step="0.1"></div>
-
-      <h3>Reading aloud</h3>
-      <div class="row"><label for="translation">Japanese translation</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
-      <div class="row"><label for="vocab">Vocabulary</label><input id="vocab" data-key="vocab" type="checkbox" class="switch"></div>
-      <div class="row"><label for="grammar">Grammar and background</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
-      <div class="row"><label for="cues">Spoken cues before notes</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
-
-      <h3>Device</h3>
-      <div class="row"><label for="repeatEpisode">Repeat the episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
-      <div class="row"><label for="keepAwake">Keep the screen on while playing</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
-      <div class="row"><label for="carPrevious">“Previous” in the car</label>
-        <select id="carPrevious" data-key="carPrevious">
-          <option value="previous">Previous sentence</option>
-          <option value="restart">Restart sentence</option>
-        </select></div>
-      <div class="row buttons">
-        <button id="resetSettings" class="link" type="button">Reset settings</button>
-        <button id="exportSettings" class="link" type="button">Export settings</button>
-      </div>
+  <section id="hero" class="hero" aria-labelledby="heroTitle" hidden>
+    <p class="hero-where"><span id="heroLang" class="lang-tag"></span><span id="heroChannel"></span></p>
+    <h2 id="heroTitle" class="hero-title"></h2>
+    <p id="heroLine" class="hero-line"></p>
+    <div class="track" aria-hidden="true"><span id="heroTrack"></span></div>
+    <p id="heroMeta" class="hero-meta"></p>
+    <div class="hero-actions">
+      <button id="heroPlay" class="button" type="button">続きから再生</button>
+      <button id="heroPick" class="button outline" type="button">文を選ぶ</button>
     </div>
   </section>
 
+  <section aria-labelledby="libraryTitle">
+    <h2 id="libraryTitle">エピソード</h2>
+    <div id="langTabs" class="tabs" role="tablist" hidden></div>
+    <ul id="library" class="library"></ul>
+    <p id="libraryEmpty" class="hint">まだエピソードがありません。下のボタンから追加すると聞き始められます。</p>
+    <label class="button file">
+      エピソードを追加
+      <input id="fileInput" type="file" multiple>
+    </label>
+    <p class="hint">1回分の <code>.mp3</code>・<code>.json</code>・<code>.ttml</code>（あれば <code>.fix.json</code> も）をまとめて選んでください。何回分でも一度に追加できます。</p>
+    <p id="importStatus" class="status" role="status"></p>
+  </section>
+</main>
+
+<main id="episode" class="screen" hidden>
+  <header class="bar"><button id="episodeBack" class="icon-btn back-btn" type="button" aria-label="戻る">‹</button></header>
+  <p class="hero-where"><span id="epLang" class="lang-tag"></span><span id="epChannel"></span></p>
+  <h1 id="epTitle" class="ep-title"></h1>
+  <div class="track" aria-hidden="true"><span id="epTrack"></span></div>
+  <p id="epMeta" class="ep-meta"></p>
+  <div id="epNotes"></div>
+  <div id="epActions" class="ep-actions"></div>
+  <h2>文を選んで再生</h2>
+  <ol id="sentences" class="sentences"></ol>
+  <button id="epDelete" class="link danger" type="button">この端末から削除</button>
+</main>
+
+<main id="settingsScreen" class="screen" hidden>
+  <header class="bar"><button id="settingsBack" class="icon-btn back-btn" type="button" aria-label="戻る">‹</button></header>
+  <h1>設定</h1>
+  <div class="settings">
+      <h3>原文の再生</h3>
+      <div class="row"><span>最初に原文を聞く回数</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
+      <div class="row"><span>説明のあとに原文を聞く回数</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
+      <div class="row slider"><label for="originalRate">原文の速さ <output data-for="originalRate"></output></label>
+        <input id="originalRate" data-key="originalRate" type="range" min="0.5" max="1.5" step="0.05"></div>
+      <div class="row slider"><label for="translationRate">訳の速さ <output data-for="translationRate"></output></label>
+        <input id="translationRate" data-key="translationRate" type="range" min="0.5" max="2" step="0.05"></div>
+      <div class="row slider"><label for="explanationRate">説明の速さ <output data-for="explanationRate"></output></label>
+        <input id="explanationRate" data-key="explanationRate" type="range" min="0.5" max="2" step="0.05"></div>
+      <div class="row slider"><label for="gapSeconds">文と文の間 <output data-for="gapSeconds"></output></label>
+        <input id="gapSeconds" data-key="gapSeconds" type="range" min="0" max="3" step="0.1"></div>
+
+      <h3>読み上げる内容</h3>
+      <div class="row"><label for="translation">日本語訳</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
+      <div class="row"><label for="vocab">語彙</label><input id="vocab" data-key="vocab" type="checkbox" class="switch"></div>
+      <div class="row"><label for="grammar">文法と背景</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
+      <div class="row"><label for="cues">説明の前の合図（「表現」「解説」）</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
+
+      <h3>端末</h3>
+      <div class="row"><label for="repeatEpisode">エピソードをくり返す</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
+      <div class="row"><label for="keepAwake">再生中は画面を消さない</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
+      <div class="row"><label for="carPrevious">車の「前へ」ボタン</label>
+        <select id="carPrevious" data-key="carPrevious">
+          <option value="previous">前の文へ</option>
+          <option value="restart">今の文を最初から</option>
+        </select></div>
+      <div class="row buttons">
+        <button id="resetSettings" class="link" type="button">初めの設定に戻す</button>
+        <button id="exportSettings" class="link" type="button">設定を書き出す</button>
+      </div>
+    </div>
+
   <section class="help" aria-labelledby="helpTitle">
-    <h2 id="helpTitle">While playing</h2>
-    <p class="hint">Tap the screen to pause or resume. Swipe left for the next sentence and right for the previous one. Hold to hear the sentence again from the start.</p>
-    <p class="hint">Translations and notes use your device's voice, so keep the screen on for reliable playback.</p>
+    <h2 id="helpTitle">再生中の操作</h2>
+    <p class="hint">画面をタップすると一時停止・再開。左にスワイプで次の文、右にスワイプで前の文。長押しで今の文を最初から聞き直します。</p>
+    <p class="hint">訳と説明は端末の声で読み上げます。止まらないように、再生中は画面を消さない設定がおすすめです。</p>
   </section>
 </main>
 

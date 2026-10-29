@@ -1,7 +1,7 @@
 import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 import { alignSubtitle } from "./subtitle.js";
-import { tidySpeech } from "./material.js";
+import { langBase, tidySpeech } from "./material.js";
 
 const $ = (id) => document.getElementById(id);
 let settings = clampSettings(store.loadSettings(DEFAULTS));
@@ -17,7 +17,7 @@ function renderSettings() {
     const k = el.dataset.key;
     if (el.classList.contains("stepper")) {
       if (!el.firstChild) {
-        el.innerHTML = `<button type="button" aria-label="Decrease">−</button><span class="value"></span><button type="button" aria-label="Increase">+</button>`;
+        el.innerHTML = `<button type="button" aria-label="減らす">−</button><span class="value"></span><button type="button" aria-label="増やす">+</button>`;
         const [minus, , plus] = el.children;
         minus.onclick = () => changeSetting(k, settings[k] - Number(el.dataset.step));
         plus.onclick = () => changeSetting(k, settings[k] + Number(el.dataset.step));
@@ -31,7 +31,7 @@ function renderSettings() {
   }
   for (const out of document.querySelectorAll("output[data-for]")) {
     const k = out.dataset.for;
-    out.textContent = k === "gapSeconds" ? settings[k].toFixed(1) + " s" : settings[k].toFixed(2) + "×";
+    out.textContent = k === "gapSeconds" ? settings[k].toFixed(1) + " 秒" : settings[k].toFixed(2) + "×";
   }
 }
 
@@ -65,39 +65,70 @@ $("exportSettings").onclick = () => {
 
 // ---------------------------------------------------------------- 教材一覧（教材ごとの再生履歴）
 
-function historyText(row, pos) {
-  if (!pos) return "Not started";
-  const when = new Date(pos.savedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  if (pos.finished) return `Finished on ${when}`;
-  return `Stopped at sentence ${pos.segIndex + 1} of ${row.segments} on ${when}`;
+const LANG_NAMES = { zh: "中国語", en: "英語", es: "スペイン語", fr: "フランス語" };
+const langOf = (row) => langBase((row.doc && row.doc.sourceLanguage) || "");
+const langName = (code) => LANG_NAMES[code] || (code ? code.toUpperCase() : "その他");
+
+function when(ts) {
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+// どこまで聞いたかを文で（数字だけの「12 / 51」にしない）
+function historyText(row, pos) {
+  if (!pos) return `全${row.segments}文。まだ聞いていません`;
+  if (pos.finished) return `全${row.segments}文を最後まで聞きました（${when(pos.savedAt)}）`;
+  return `全${row.segments}文中 ${pos.segIndex + 1}文目で止めました（${when(pos.savedAt)}）`;
+}
+const progressOf = (row, pos) => (!pos ? 0 : pos.finished ? 1 : pos.segIndex / Math.max(1, row.segments));
+
+function notesOf(row) {
+  const notes = [];
+  if (row.mode === "direct" && row.hasTtml === false) notes.push("単語ごとの時刻がないため、字幕は文ごとに表示します。");
+  if (row.translationMismatch) notes.push("訳が音声とずれている可能性があります。.fix.json があれば一緒に追加してください。");
+  return notes;
+}
+
+let langFilter = "";
+try { langFilter = localStorage.getItem("listening.langFilter") || ""; } catch { /* なくてもよい */ }
 
 async function renderLibrary() {
   const rows = await store.listMaterials();
   rowsById = new Map(rows.map((r) => [r.id, r]));
+  renderHero(rows);
+  // 言語の切り替え（取り込んだ言語が2つ以上のときだけ）
+  const langs = [...new Set(rows.map(langOf))].sort((a, b) => Object.keys(LANG_NAMES).indexOf(a) - Object.keys(LANG_NAMES).indexOf(b));
+  if (langFilter && !langs.includes(langFilter)) langFilter = "";
+  const tabs = $("langTabs");
+  tabs.hidden = langs.length < 2;
+  tabs.innerHTML = "";
+  for (const code of ["", ...langs]) {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "tab", textContent: code ? langName(code) : "すべて" });
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(code === langFilter));
+    b.onclick = () => {
+      langFilter = code;
+      try { localStorage.setItem("listening.langFilter", code); } catch { /* なくてもよい */ }
+      renderLibrary();
+    };
+    tabs.append(b);
+  }
   const ul = $("library");
   ul.innerHTML = "";
   $("libraryEmpty").hidden = rows.length > 0;
-  for (const row of rows) {
+  for (const row of rows.filter((r) => !langFilter || langOf(r) === langFilter)) {
     const pos = store.loadPosition(row.id);
     const resumable = pos && !pos.finished && pos.segIndex > 0;
     const li = document.createElement("li");
     li.dataset.id = row.id;
-    li.innerHTML = `<div class="name"></div><div class="channel"></div><div class="track" aria-hidden="true"><span></span></div>` +
-      `<div class="meta"></div><div class="actions"></div>`;
+    li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"></span></button>` +
+      `<div class="track" aria-hidden="true"><span></span></div><div class="meta"></div><div class="actions"></div>`;
     li.querySelector(".name").textContent = row.title;
-    li.querySelector(".channel").textContent = `${row.channel ? row.channel + ", " : ""}${row.segments} sentences`;
-    // どこまで聞いたかを琥珀色の線で見せる
-    const done = !pos ? 0 : pos.finished ? 1 : pos.segIndex / Math.max(1, row.segments);
-    li.querySelector(".track span").style.width = (done * 100).toFixed(1) + "%";
+    li.querySelector(".channel").textContent = [langs.length > 1 && !langFilter ? langName(langOf(row)) : "", row.channel].filter(Boolean).join("　");
+    li.querySelector(".card-open").onclick = () => openEpisode(row.id);
+    li.querySelector(".track span").style.width = (progressOf(row, pos) * 100).toFixed(1) + "%";
     li.querySelector(".meta").textContent = historyText(row, pos);
-    const notes = [];
-    if (row.mode === "direct" && row.hasTtml === false) notes.push("No transcript timing, so subtitles follow the sentence only.");
-    if (row.translationMismatch) notes.push("The translations may not match the audio. Add its .fix.json if you have one.");
-    for (const n of notes) {
-      const el = Object.assign(document.createElement("div"), { className: "note", textContent: n });
-      li.querySelector(".actions").before(el);
-    }
+    for (const n of notesOf(row)) li.querySelector(".actions").before(Object.assign(document.createElement("div"), { className: "note", textContent: n }));
     const actions = li.querySelector(".actions");
     const add = (label, cls, fn) => {
       const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
@@ -105,28 +136,103 @@ async function renderLibrary() {
       actions.append(b);
     };
     if (resumable) {
-      add("Continue", "start resume", () => open(row.id, "resume"));
-      add("Start over", "outline from-start", () => open(row.id, "start"));
+      add("続きから", "start resume", () => open(row.id, "resume"));
+      add("最初から", "outline from-start", () => open(row.id, "start"));
     } else {
-      add(pos && pos.finished ? "Listen again" : "Start", "start", () => open(row.id, "start"));
+      add(pos && pos.finished ? "もう一度" : "再生", "start", () => open(row.id, "start"));
     }
-    add("Delete", "outline delete", async () => {
-      if (!confirm(`Delete “${row.title}” from this device?`)) return;
-      await store.deleteMaterial(row.id);
-      renderLibrary();
-    });
+    add("文を選ぶ", "outline pick", () => openEpisode(row.id));
     ul.append(li);
   }
 }
 
+// ホームの一番上: 最後に聞いたエピソードの、止めた文そのものを大きく見せて、すぐ続きを再生できるようにする
+function renderHero(rows) {
+  const id = store.lastMaterialId();
+  const row = rows.find((r) => r.id === id);
+  const pos = row && store.loadPosition(row.id);
+  const hero = $("hero");
+  hero.hidden = !row || !pos || pos.finished;
+  if (hero.hidden) return;
+  const i = resumeIndex(row.doc, pos);
+  const seg = row.doc.segments[i];
+  $("heroLang").textContent = langName(langOf(row));
+  $("heroChannel").textContent = row.channel || "";
+  $("heroTitle").textContent = row.title;
+  $("heroLine").textContent = seg ? seg.original : "";
+  $("heroLine").lang = row.doc.sourceLanguage || "";
+  $("heroTrack").style.width = (progressOf(row, pos) * 100).toFixed(1) + "%";
+  $("heroMeta").textContent = historyText(row, pos);
+  $("heroPlay").onclick = () => open(row.id, "resume");
+  $("heroPick").onclick = () => openEpisode(row.id);
+}
+
+// エピソード: 文の一覧から好きな文を選んで再生する
+let episodeId = null;
+function openEpisode(id) {
+  const row = rowsById.get(id);
+  if (!row) return;
+  episodeId = id;
+  const pos = store.loadPosition(id);
+  const at = pos && !pos.finished ? resumeIndex(row.doc, pos) : -1;
+  $("epLang").textContent = langName(langOf(row));
+  $("epChannel").textContent = row.channel || "";
+  $("epTitle").textContent = row.title;
+  $("epTrack").style.width = (progressOf(row, pos) * 100).toFixed(1) + "%";
+  $("epMeta").textContent = historyText(row, pos);
+  $("epNotes").innerHTML = "";
+  for (const n of notesOf(row)) $("epNotes").append(Object.assign(document.createElement("p"), { className: "note", textContent: n }));
+  const actions = $("epActions");
+  actions.innerHTML = "";
+  const add = (label, cls, fn) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
+    b.onclick = fn;
+    actions.append(b);
+  };
+  if (at > 0) add("続きから", "start resume", () => open(id, "resume"));
+  add(at > 0 ? "最初から" : "最初から再生", at > 0 ? "outline from-start" : "start", () => open(id, "start"));
+  const ol = $("sentences");
+  ol.innerHTML = "";
+  const lang = row.doc.sourceLanguage || "";
+  row.doc.segments.forEach((seg, i) => {
+    const li = document.createElement("li");
+    if (i === at) li.className = "here";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<span class="t"></span><span class="o"></span><span class="j" lang="ja"></span>`;
+    const sec = Math.max(0, Math.floor(seg.begin));
+    b.querySelector(".t").textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    b.querySelector(".o").textContent = seg.original;
+    b.querySelector(".o").lang = lang;
+    b.querySelector(".j").textContent = seg.translation || "";
+    b.onclick = () => open(id, "at", i);
+    li.append(b);
+    ol.append(li);
+  });
+  show("episode");
+  const here = ol.querySelector(".here");
+  if (here) here.scrollIntoView({ block: "center" });
+  else window.scrollTo(0, 0);
+}
+
+$("epDelete").onclick = async () => {
+  const row = rowsById.get(episodeId);
+  if (!row || !confirm(`「${row.title}」をこの端末から削除しますか？`)) return;
+  await store.deleteMaterial(row.id);
+  show("home");
+};
+$("episodeBack").onclick = () => show("home");
+$("openSettings").onclick = () => show("settings");
+$("settingsBack").onclick = () => show("home");
+
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
   status.className = "status";
-  status.textContent = "Adding… Matching sentences to the audio takes a few seconds.";
+  status.textContent = "追加しています。文の区切りを音声に合わせるので、数秒かかります…";
   try {
     const { imported, errors } = await store.importFiles(e.target.files);
-    const lines = imported.map((r) => `Imported “${r.title}”.` +
-      (r.translationMismatch ? " The translations may not match the audio. Add its .fix.json with it if you have one." : ""));
+    const lines = imported.map((r) => `「${r.title}」を追加しました。` +
+      (r.translationMismatch ? "訳が音声とずれている可能性があります。.fix.json があれば一緒に追加してください。" : ""));
     status.textContent = [...lines, ...errors].join("\n");
     if (errors.length || imported.some((r) => r.translationMismatch)) status.className = "status error";
   } catch (err) {
@@ -170,7 +276,7 @@ function unlockAudio() {
 }
 
 let opening = 0;
-function open(id, how) {
+function open(id, how, index = 0) {
   const row = rowsById.get(id);
   if (!row) return;
   const token = ++opening;
@@ -179,28 +285,29 @@ function open(id, how) {
   unlockAudio();
   current = row;
   store.setLastMaterialId(id);
-  setStatus("Loading audio…");
+  setStatus("音声を読み込んでいます…");
   show("player");
   store.getAudio(row).then(async (audio) => {
     if (store.needsRefine(row)) {
-      setStatus("Matching sentences to the audio… (first time only)");
+      setStatus("文の区切りを音声に合わせています（初回だけ）…");
       await store.ensureRefined(row, audio);
     }
     // 無音がまだ鳴っていれば止め終えてから始める（その pause を中断と取り違えないように）
     const el = $("audio");
     if (!el.paused) await new Promise((r) => { el.addEventListener("pause", r, { once: true }); el.pause(); setTimeout(r, 300); });
     if (token !== opening) return;
-    start(row, audio, how);
+    start(row, audio, how, index);
   }).catch((err) => {
     if (token === opening) setStatus(err.message, true);
   });
 }
 
-function start(row, audio, how) {
+function start(row, audio, how, index = 0) {
   const id = row.id;
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   audioUrl = URL.createObjectURL(audio);
-  const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id)) : 0;
+  const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id))
+    : how === "at" ? Math.min(Math.max(0, index), row.doc.segments.length - 1) : 0;
   tidySpeech(row.doc);
   engine = new ListeningEngine({ doc: row.doc, audioUrl, mode: row.mode, el: $("audio"), settings, position: { segIndex } });
   window.__engine = engine; // 動作確認用
@@ -210,13 +317,13 @@ function start(row, audio, how) {
   engine.addEventListener("position", () => { savePos(); updateMediaSession(); });
   engine.addEventListener("finished", () => {
     store.savePosition(current.id, { segIndex: 0, segId: row.doc.segments[0].id, total: row.doc.segments.length, finished: true });
-    setStatus("Finished");
+    setStatus("最後まで聞きました");
   });
-  engine.addEventListener("interrupted", () => { savePos(); setStatus("Interrupted — tap to resume from here"); });
+  engine.addEventListener("interrupted", () => { savePos(); setStatus("途中で止まりました。タップするとここから続けます"); });
   engine.addEventListener("error", (e) => setStatus(e.detail.message, true));
   $("subtitle").lang = row.doc.sourceLanguage || "en";
   $("spoken").lang = row.doc.targetLanguage || "ja";
-  setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "Playback may stop when the screen locks");
+  setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "画面が消えると再生が止まることがあります");
   renderedSeg = null;
   savePos();
   setupMediaSession();
@@ -339,10 +446,12 @@ async function updateWakeLock() {
   } catch { wakeLock = null; /* 未対応・拒否 */ }
 }
 
+const SCREENS = { home: "home", episode: "episode", settings: "settingsScreen", player: "player" };
 function show(name) {
-  $("setup").hidden = name !== "setup";
-  $("player").hidden = name !== "player";
-  if (name === "setup") { renderSettings(); renderLibrary(); }
+  for (const [key, id] of Object.entries(SCREENS)) $(id).hidden = key !== name;
+  if (name === "home") renderLibrary();
+  if (name === "settings") renderSettings();
+  if (name !== "episode") window.scrollTo(0, 0);
 }
 
 // ---------------------------------------------------------------- 操作（ジェスチャー・キーボード）
@@ -358,15 +467,15 @@ function flash(text) {
 }
 
 const actions = {
-  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ Paused" : "▶ Playing"); },
-  next() { if (!engine) return; engine.next(); flash("Next ›"); },
-  previous() { if (!engine) return; engine.previous(); flash("‹ Previous"); },
-  restart() { if (!engine) return; engine.restart(); flash("↺ Restart"); },
+  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ 一時停止" : "▶ 再生"); },
+  next() { if (!engine) return; engine.next(); flash("次の文 ›"); },
+  previous() { if (!engine) return; engine.previous(); flash("‹ 前の文"); },
+  restart() { if (!engine) return; engine.restart(); flash("↺ 最初から"); },
 };
 
 $("back").onclick = () => {
   if (engine) { engine.pause(); savePos(); }
-  show("setup");
+  show("home");
 };
 
 // タップ: 一時停止・再開 / 左スワイプ: 次の文 / 右スワイプ: 前の文 / 長押し: 今の文を最初から
@@ -436,8 +545,8 @@ function updateMediaSession() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `${s.segIndex + 1}/${s.total} ${current.title}`,
-      artist: current.channel || "Listening Mode",
-      album: "Listening Mode",
+      artist: current.channel || "聞き流し",
+      album: "聞き流し",
       artwork: [{ src: "icons/icon-512.png", sizes: "512x512", type: "image/png" }],
     });
   } catch { /* 未対応 */ }
@@ -459,11 +568,11 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 const params = new URLSearchParams(location.search);
 if (params.get("import")) {
   // 例: ?import=materials/xxx.listening.json （同じサーバーに置いた教材を取り込む）
-  $("importStatus").textContent = "Importing…";
+  $("importStatus").textContent = "追加しています…";
   store.importFromUrl(params.get("import"))
-    .then((row) => { $("importStatus").textContent = `Imported “${row.title}”`; renderLibrary(); })
+    .then((row) => { $("importStatus").textContent = `「${row.title}」を追加しました。`; renderLibrary(); })
     .catch((err) => { $("importStatus").className = "status error"; $("importStatus").textContent = err.message; });
 }
-show("setup");
+show("home");
 window.__appStarted = true; // index.html の起動確認用
 try { sessionStorage.removeItem(window.__appResetKey || "listening.autoReset"); } catch { /* なくてもよい */ }
