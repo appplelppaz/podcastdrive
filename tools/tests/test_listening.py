@@ -112,7 +112,48 @@ class SpeechTest(unittest.TestCase):
         runs = speech.split_runs("[[how]]で始まる部分が、[[looking at]]の目的語です。", "en")
         self.assertEqual(runs, [("en", "how"), ("ja", "で始まる部分が、"), ("en", "looking at"), ("ja", "の目的語です。")])
         self.assertEqual(speech.split_runs("looking at の目的語", "en")[0], ("en", "looking at"))
-        self.assertEqual(speech.split_runs("正在 は進行", "zh"), [("ja", "正在 は進行")])  # 中国語は印だけを信じる
+        self.assertEqual(speech.split_runs("正在 は進行", "zh"), [("ja", "正在 は進行")])  # 原文がなければ印だけを信じる
+
+    # 文法の説明の中の教材言語の語句を、教材言語の声で読む（中国語・韓国語・ロシア語・拡張ラテン文字）
+    RUN_CASES = [
+        ("原来、才是、実はこそが、だったという気づきの構文。", "zh", "不急着要证明什么，原来才是善待自己最好的方法。",
+         [["zh", "原来、才是"], ["ja", "、実はこそが、だったという気づきの構文。"]]),
+        ("「原来…才是」は気づきを表します。この方法を覚えましょう。", "zh", "原来才是最好的方法。",
+         [["zh", "原来…才是"], ["ja", "は気づきを表します。この方法を覚えましょう。"]]),
+        ("两千多年 の 多 は数のあとに置きます。", "zh", "两千多年前",
+         [["zh", "两千多年"], ["ja", "の"], ["zh", "多"], ["ja", "は数のあとに置きます。"]]),
+        ("把は目的語を前に出します。", "zh", "我把书放在桌子上。", [["zh", "把"], ["ja", "は目的語を前に出します。"]]),
+        ("-고 있다 は進行形です。", "ko", "지금 공부하고 있다", [["ko", "고 있다"], ["ja", "は進行形です。"]]),
+        ("был は быть の過去形です。", "ru", "Он был дома.",
+         [["ru", "был"], ["ja", "は"], ["ru", "быть"], ["ja", "の過去形です。"]]),
+        ("żeby は目的を表します。", "pl", "Przyszedł, żeby pomóc.", [["pl", "żeby"], ["ja", "は目的を表します。"]]),
+        ("looking for は探している。", "en", "We are looking for it.", [["en", "looking for"], ["ja", "は探している。"]]),
+    ]
+
+    def test_runs_source_words(self):
+        for text, lang, original, want in self.RUN_CASES:
+            got = [list(r) for r in speech.split_runs(text, lang, "ja", original=original)]
+            self.assertEqual(got, want, text)
+
+    @unittest.skipUnless(shutil.which("node"), "node が必要")
+    def test_runs_same_in_app(self):
+        script = """
+import { splitRuns, tidySpeech } from %s;
+const cases = JSON.parse(process.argv[1]);
+const runs = cases.map(([t, l, o]) => splitRuns(t, l, "ja", o));
+// 以前に取り込んだ教材（文法を全部日本語の声で保存したもの）も、開くときに見分け直す
+const doc = { sourceLanguage: "zh", targetLanguage: "ja", segments: [{ original: cases[0][2], parts: [
+  { type: "cue", cue: "grammar", group: "grammar" }, { type: "speech", group: "grammar", lang: "ja", text: cases[0][0] },
+  { type: "cue", cue: "again", group: "again" }] }] };
+tidySpeech(doc); tidySpeech(doc);
+console.log(JSON.stringify({ runs, stored: doc.segments[0].parts.filter((p) => p.type === "speech").map((p) => [p.lang, p.text]) }));
+""" % json.dumps("file://" + os.path.join(APP, "material.js"))
+        cases = [c[:3] for c in self.RUN_CASES]
+        out = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(cases)],
+                             capture_output=True, text=True, check=True).stdout
+        res = json.loads(out)
+        self.assertEqual(res["runs"], [c[3] for c in self.RUN_CASES])
+        self.assertEqual(res["stored"], self.RUN_CASES[0][3])
 
     def test_pick_meaning_in_context(self):
         self.assertEqual(speech.pick_meaning("衰退しつつある、低迷している", "経済が低迷している"), "低迷している")

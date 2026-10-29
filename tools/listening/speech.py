@@ -17,7 +17,20 @@ CUE_TEXTS = {
 PHRASE_POS = ("熟語", "句", "慣用", "表現", "idiom", "phrase", "expression", "collocation")
 SKIP_POS = ("固有名詞", "proper", "人名", "地名")
 
-LATIN_LANGS = {"en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv"}
+LATIN_LANGS = {"en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv", "ca", "ro", "cs", "sk", "hu",
+               "fi", "da", "no", "nb", "hr", "sl", "et", "lv", "lt", "ms", "tl", "sw", "ga", "cy", "eu", "gl", "af", "la"}
+# 日本語の説明の中の教材言語の語句を見つける文字（app/material.js と同じ）。ラテン文字は ł ş ư などの拡張も含める
+LATIN = "A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u1E00-\u1EFF"
+SCRIPTS = {
+    "ko": "\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F",
+    "ru": "\u0400-\u04FF", "uk": "\u0400-\u04FF", "bg": "\u0400-\u04FF", "sr": "\u0400-\u04FF",
+    "el": "\u0370-\u03FF", "ar": "\u0600-\u06FF", "fa": "\u0600-\u06FF", "he": "\u0590-\u05FF",
+    "th": "\u0E00-\u0E7F", "hi": "\u0900-\u097F",
+}
+HAN_LANGS = {"zh", "yue", "cmn"}
+HAN = "\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF"
+KANA = re.compile("[\u3040-\u30FF\u30FC]")
+PARTICLES = "はがをのもとにでやへ"
 
 # 1秒あたりの目安（通常速度）。解説の長さの見積もりに使う。
 JA_CHARS_PER_SEC = 7.5
@@ -68,47 +81,81 @@ def clean_term(term):
     return re.sub(r"\s+", " ", t).strip(" ,")
 
 
-def split_runs(text, source_lang, target_lang="ja", auto_detect=True):
+def split_runs(text, source_lang, target_lang="ja", auto_detect=True, original=""):
     """日本語の文を [(lang, text)] の並びに分ける。[[...]] は教材言語。
 
-    auto_detect のとき、ラテン文字の言語では2文字以上のラテン文字の並びも教材言語として扱う。
+    auto_detect のとき、教材言語の文字の並びも教材言語として扱う（ラテン文字は2文字以上、
+    ハングル・キリル文字などは1文字から、中国語は原文 original にある漢字の並びで前後が日本語の語でないもの）。
     """
     runs = []
     pos = 0
     for m in re.finditer(r"\[\[(.+?)\]\]", text):
         if m.start() > pos:
-            runs.extend(_split_plain(text[pos:m.start()], source_lang, target_lang, auto_detect))
+            runs.extend(_split_plain(text[pos:m.start()], source_lang, target_lang, auto_detect, original))
         runs.append((source_lang, m.group(1).strip()))
         pos = m.end()
     if pos < len(text):
-        runs.extend(_split_plain(text[pos:], source_lang, target_lang, auto_detect))
+        runs.extend(_split_plain(text[pos:], source_lang, target_lang, auto_detect, original))
     merged = []
     for lang, t in runs:
         t = t.strip()
-        if not t or re.fullmatch(r"[\s、。,.!?！？]+", t):
+        if not t or re.fullmatch(r"[\s、。,.!?！？…‥・\-‐–—]+", t):
             if merged and t.strip():
                 merged[-1] = (merged[-1][0], merged[-1][1] + t.strip())
             continue
         if merged and merged[-1][0] == lang:
-            merged[-1] = (lang, merged[-1][1] + (" " if lang != target_lang else "") + t)
+            sep = " " if lang != target_lang and lang_base(lang) not in HAN_LANGS else ""
+            merged[-1] = (lang, merged[-1][1] + sep + t)
         else:
             merged.append((lang, t))
     return merged
 
 
-def _split_plain(text, source_lang, target_lang, auto_detect):
-    if not auto_detect or lang_base(source_lang) not in LATIN_LANGS:
+def _script_runs(text, chars, min_len):
+    pattern = f"[{chars}][{chars}'’\\-]*(?:[ ,]+[{chars}][{chars}'’\\-]*)*"
+    return [(m.start(), m.end()) for m in re.finditer(pattern, text)
+            if len(re.sub(r"[ ,]", "", m.group(0))) >= min_len]
+
+
+def _han_runs(text, original):
+    # 漢字は日本語にもあるので、原文にある漢字の並びで、前が仮名でなく、後ろが仮名なら助詞のものだけ
+    if not original:
+        return []
+    found = []
+    for m in re.finditer(f"[{HAN}]+", text):
+        w, b, e = m.group(0), m.start(), m.end()
+        if w not in original:
+            continue
+        before = text[b - 1] if b > 0 else ""
+        after = text[e] if e < len(text) else ""
+        if before and KANA.match(before):
+            continue
+        if after and KANA.match(after) and after not in PARTICLES:
+            continue
+        found.append((b, e))
+    return found
+
+
+def _split_plain(text, source_lang, target_lang, auto_detect, original=""):
+    base = lang_base(source_lang)
+    if not auto_detect:
         return [(target_lang, text)]
+    if base in LATIN_LANGS:
+        found = _script_runs(text, LATIN, 2)
+    elif base in SCRIPTS:
+        found = _script_runs(text, SCRIPTS[base], 1)
+    elif base in HAN_LANGS:
+        found = _han_runs(text, original)
+    else:
+        return [(target_lang, text)]
+    # 教材言語の語句を囲む「」は、語句と一緒に外す（読み上げで区切りになるだけなので）
     out = []
     pos = 0
-    pattern = r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*(?:[ ,]+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*)*"
-    for m in re.finditer(pattern, text):
-        if len(m.group(0).replace(" ", "")) < 2:
-            continue
-        if m.start() > pos:
-            out.append((target_lang, text[pos:m.start()]))
-        out.append((source_lang, m.group(0).strip(" ,")))
-        pos = m.end()
+    for b, e in found:
+        if b > pos:
+            out.append((target_lang, re.sub(r"[「『]$", "", text[pos:b])))
+        out.append((source_lang, text[b:e].strip(" ,")))
+        pos = e + 1 if text[e:e + 1] in ("」", "』") else e
     if pos < len(text):
         out.append((target_lang, text[pos:]))
     return out
@@ -204,11 +251,11 @@ def plain_meaning(text):
     return t or text.strip()
 
 
-def vocab_runs(item, source_lang, target_lang="ja"):
+def vocab_runs(item, source_lang, target_lang="ja", original=""):
     runs = [(source_lang, item["term"])]
     runs.append((target_lang, plain_meaning(item["meaning"].rstrip("。")).rstrip("。") + "。"))
     if item.get("note"):
-        runs.extend(split_runs(item["note"], source_lang, target_lang))
+        runs.extend(split_runs(item["note"], source_lang, target_lang, original=original))
     return runs
 
 
@@ -240,7 +287,7 @@ def fit_budget(listening, source_lang, target_lang="ja", max_seconds=20.0):
     return listening, notes
 
 
-def build_parts(translation_text, listening, source_lang, target_lang="ja"):
+def build_parts(translation_text, listening, source_lang, target_lang="ja", original=""):
     """読み上げ順のパーツ列。回数・オンオフは再生側で適用する（ここでは全部を並べる）。"""
     parts = [{"type": "original", "role": "first"}]
     if translation_text:
@@ -250,11 +297,11 @@ def build_parts(translation_text, listening, source_lang, target_lang="ja"):
     if listening.get("vocab"):
         parts.append({"type": "cue", "cue": "vocab", "group": "vocab"})
         for item in listening["vocab"]:
-            for lang, text in vocab_runs(item, source_lang, target_lang):
+            for lang, text in vocab_runs(item, source_lang, target_lang, original):
                 parts.append(_speech("vocab", lang, text))
     if listening.get("grammar"):
         parts.append({"type": "cue", "cue": "grammar", "group": "grammar"})
-        for lang, text in split_runs(listening["grammar"], source_lang, target_lang):
+        for lang, text in split_runs(listening["grammar"], source_lang, target_lang, original=original):
             parts.append(_speech("grammar", lang, text))
     parts.append({"type": "cue", "cue": "again", "group": "again"})
     parts.append({"type": "original", "role": "second"})

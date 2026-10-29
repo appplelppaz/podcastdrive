@@ -323,7 +323,7 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
             "display": display,
             "listening": listening,
             "parts": speech.build_parts(listening.get("translationSpeech") or seg["translation"],
-                                        listening, source_lang, target_lang),
+                                        listening, source_lang, target_lang, seg["original"]),
         })
 
     sources = {"json": {"file": os.path.basename(json_path), "sha256": sha256_file(json_path)}}
