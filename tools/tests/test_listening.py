@@ -112,7 +112,79 @@ class SpeechTest(unittest.TestCase):
         runs = speech.split_runs("[[how]]で始まる部分が、[[looking at]]の目的語です。", "en")
         self.assertEqual(runs, [("en", "how"), ("ja", "で始まる部分が、"), ("en", "looking at"), ("ja", "の目的語です。")])
         self.assertEqual(speech.split_runs("looking at の目的語", "en")[0], ("en", "looking at"))
-        self.assertEqual(speech.split_runs("正在 は進行", "zh"), [("ja", "正在 は進行")])  # 中国語は印だけを信じる
+        self.assertEqual(speech.split_runs("正在 は進行", "zh"), [("ja", "正在 は進行")])  # 原文がなければ印だけを信じる
+
+    # 文法の説明の中の教材言語の語句を、教材言語の声で読む（中国語・スペイン語・フランス語・英語。実際の教材の文法メモから）
+    GRAMMAR_CASES = [
+        ("「原来…才是…」＝「実は〜こそが…だった」という気づきの構文。", "zh", "不急着要证明什么，原来才是善待自己最好的方法。",
+         [["zh", "原来、才是"], ["ja", "、実はこそが、だったという気づきの構文。"]]),
+        ("「请＋動詞」で丁寧な依頼・指示を表す。", "zh", "请你现在立刻马上放下手机。",
+         [["zh", "请"], ["ja", "と動詞で丁寧な依頼・指示を表す。"]]),
+        ("台湾で「八點檔」は夜8時台の長寿ドラマ枠を指す。", "zh", "就像八点档一样。",
+         [["ja", "台湾で"], ["zh", "八點檔"], ["ja", "は夜8時台の長寿ドラマ枠を指す。"]]),
+        ("「不是…，而是…」は「…ではなく、…だ」。前を否定して後ろを肯定する。", "zh", "不是不证明自己，而是不急着证明自己。",
+         [["zh", "不是、，而是"], ["ja", "、は、ではなく、だ。"]]),
+        ("動詞＋到了：～に到達した", "zh", "SpaceX的火箭慢慢地回到了地上。",
+         [["ja", "動詞と"], ["zh", "到了"], ["ja", "、に到達した。"]]),
+        ("数＋多：～余り", "zh", "两千多年前", [["ja", "数と"], ["zh", "多"], ["ja", "、余り。"]]),
+        ("A就是B的意思：AはBという意味だ", "zh", "很火就是很流行的意思。",
+         [["ja", "A"], ["zh", "就是"], ["ja", "B"], ["zh", "的意思"], ["ja", "、AはBという意味だ。"]]),
+        ("この方法を覚えましょう。", "zh", "最好的方法。", [["ja", "この方法を覚えましょう。"]]),
+        ("「más ... que」の比較で、比較対象に前置詞 a が繰り返される。", "es", "más a los líderes que a los dictadores",
+         [["es", "más、 que"], ["ja", "の比較で、比較対象に前置詞"], ["es", "a"], ["ja", "が繰り返される。"]]),
+        ("AIの規制は「regulación」で表す。", "es", "la regulación de la inteligencia artificial",
+         [["ja", "AIの規制は"], ["es", "regulación"], ["ja", "で表す。"]]),
+        ("「à ne pas + 不定詞」で「～してはならない」という注意書きの簡潔な形。", "fr", "à ne pas confondre",
+         [["fr", "à ne pas"], ["ja", "と不定詞でしてはならないという注意書きの簡潔な形。"]]),
+        ("「baggage」は不可算名詞。数えるときは a piece of baggage とする。", "en", "Your baggage is here.",
+         [["en", "baggage"], ["ja", "は不可算名詞。"]]),
+        ("再帰代名詞 yourself を強調的に添える。", "en", "Did you do it yourself?",
+         [["ja", "再帰代名詞"], ["en", "yourself"], ["ja", "を強調的に添える。"]]),
+    ]
+
+    def test_grammar_source_words(self):
+        for grammar, lang, original, want in self.GRAMMAR_CASES:
+            g = speech.auto_grammar(grammar, lang, original)
+            got = [list(r) for r in speech.split_runs(g, lang, "ja", original=original)]
+            self.assertEqual(got, want, grammar)
+
+    def test_speak_is_used_as_written(self):
+        sp = {"vocab": [["认真", "ここでは、真剣に、という意味です"]],
+              "grammar": [["zh", "「原来…才是…」"], ["ja", "は「実は〜こそが…だった」という気づきを表す"]]}
+        li = speech.speak_listening(sp, "zh")
+        self.assertEqual(li["vocab"], [{"term": "认真", "meaning": "真剣に", "note": ""}])
+        self.assertEqual(li["grammarRuns"], [["zh", "原来…才是…"], ["ja", "は実はこそが、だったという気づきを表す。"]])
+        parts = speech.build_parts("訳。", li, "zh", "ja", "不急着要证明什么，原来才是善待自己最好的方法。")
+        self.assertEqual([(p["lang"], p["text"]) for p in parts if p["type"] == "speech"],
+                         [("ja", "訳。"), ("zh", "认真"), ("ja", "真剣に。"), ("zh", "原来…才是…"),
+                          ("ja", "は実はこそが、だったという気づきを表す。")])
+
+    def test_meaning_source_words(self):
+        item = {"term": "PS", "meaning": "社会党、Parti Socialiste"}
+        self.assertEqual(speech.vocab_runs(item, "fr", original="le PS"),
+                         [("fr", "PS"), ("ja", "社会党、"), ("fr", "Parti Socialiste。")])
+        self.assertEqual(speech.vocab_runs({"term": "努力", "meaning": "努力する"}, "zh", original="我们还是要努力"),
+                         [("zh", "努力"), ("ja", "努力する。")])
+
+    @unittest.skipUnless(shutil.which("node"), "node が必要")
+    def test_grammar_same_in_app(self):
+        # 以前に取り込んだ教材（文法を全部日本語の声で保存したもの）を開いたときに作り直す道で、Python と同じになること
+        script = """
+import { tidySpeech } from %s;
+const cases = JSON.parse(process.argv[1]);
+const out = cases.map(([g, lang, original]) => {
+  const doc = { sourceLanguage: lang, targetLanguage: "ja", segments: [{ original, display: { grammar: g },
+    listening: { source: "auto", vocab: [], grammar: "" }, parts: [{ type: "cue", cue: "grammar", group: "grammar" },
+    { type: "speech", group: "grammar", lang: "ja", text: "古い読み上げ" }] }] };
+  tidySpeech(doc); tidySpeech(doc);
+  return doc.segments[0].parts.filter((p) => p.type === "speech").map((p) => [p.lang, p.text]);
+});
+console.log(JSON.stringify(out));
+""" % json.dumps("file://" + os.path.join(APP, "material.js"))
+        cases = [c[:3] for c in self.GRAMMAR_CASES]
+        out = subprocess.run(["node", "--input-type=module", "-e", script, json.dumps(cases, ensure_ascii=False)],
+                             capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(out), [c[3] for c in self.GRAMMAR_CASES])
 
     def test_pick_meaning_in_context(self):
         self.assertEqual(speech.pick_meaning("衰退しつつある、低迷している", "経済が低迷している"), "低迷している")
@@ -278,6 +350,12 @@ class MaterialParityTest(TempDir):
                             {"word": "Tehran", "meaning": "テヘラン", "pos": "固有名詞"}]
         segs[1]["grammar"] = "not much — 否定。「あまり〜ない」（量）を表す。短い答えでよく使う。"
         cases = [(segs, None)]
+        # 読み上げ用の指定（speak）がある回: 指定どおりの言語で読む（推測しない）
+        spoken = [dict(x) for x in segs]
+        spoken[0]["speak"] = {"vocab": [{"term": "went up", "meaning": "上がった"}, ["oops"]],
+                              "grammar": [{"lang": "en", "text": "went up"}, {"lang": "ja", "text": "は「上がった」という過去形"}]}
+        spoken[1]["speak"] = {"vocab": [["not much", "ほとんどない"]], "grammar": []}
+        cases.append((spoken, None))
         fix = {"format": "podcast-listening-fix", "formatVersion": 1, "segments": {
             "1#1": {"translation": "物価が上がった。", "vocab": [["went up", "ここでは、上がった、という意味です", "句動詞", ""]]},
             "1#2": {"translation": "人々は心配している。", "vocab": [], "grammar": "[[worried]]は形容詞です。"},

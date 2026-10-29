@@ -99,6 +99,10 @@ def merge_fragments(segs, lang):
             prev["grammar"] = "\n".join(g for g in (prev["grammar"], seg["grammar"]) if g)
             if seg.get("pinyin"):
                 prev["pinyin"] = (prev.get("pinyin", "") + " " + seg["pinyin"]).strip()
+            if prev.get("speak") or seg.get("speak"):
+                a = prev.get("speak") or {"vocab": [], "grammar": []}
+                b = seg.get("speak") or {"vocab": [], "grammar": []}
+                prev["speak"] = {"vocab": a["vocab"] + b["vocab"], "grammar": a["grammar"] or b["grammar"]}
             prev["end"] = seg["end"]
             prev["sourceIds"].append(seg["id"])
             continue
@@ -269,7 +273,7 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
     json_words = sorted(w for s in ep["segments"] for w in s.get("wordTimings", []))
     words = json_words or (ttml["words"] if ttml else [])
     out_segs = []
-    counts = {"authored": 0, "auto": 0, "kept": 0}
+    counts = {"authored": 0, "auto": 0, "kept": 0, "speak": 0}
     for i, seg in enumerate(segs):
         key_str = segment_key(seg)
         key = (key_str,)
@@ -286,6 +290,9 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
                 and prev_by_key[key].get("listening", {}).get("source") == "authored":
             listening = prev_by_key[key]["listening"]
             counts["kept"] += 1
+        elif seg.get("speak"):
+            listening = speech.speak_listening(seg["speak"], source_lang, target_lang)
+            counts["speak"] += 1
         else:
             listening = speech.auto_listening(seg, source_lang)
             counts["auto"] += 1
@@ -323,7 +330,7 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
             "display": display,
             "listening": listening,
             "parts": speech.build_parts(listening.get("translationSpeech") or seg["translation"],
-                                        listening, source_lang, target_lang),
+                                        listening, source_lang, target_lang, seg["original"]),
         })
 
     sources = {"json": {"file": os.path.basename(json_path), "sha256": sha256_file(json_path)}}
@@ -357,8 +364,8 @@ def convert(json_path, ttml_path=None, audio_path=None, out_path=None, authored_
     # 事前生成音声の参照は、内容が変わっていなければ引き継ぐ（sprite.py が更新する）
     if previous and previous.get("audio"):
         doc["audio"] = previous["audio"]
-    log("区間 %d（作者の解説 %d、引き継ぎ %d、自動 %d）" % (
-        len(out_segs), counts["authored"], counts["kept"], counts["auto"]))
+    log("区間 %d（作者の解説 %d、引き継ぎ %d、読み上げ指定 %d、自動 %d）" % (
+        len(out_segs), counts["authored"], counts["kept"], counts["speak"], counts["auto"]))
     if out_path:
         write_json(out_path, doc)
     return doc

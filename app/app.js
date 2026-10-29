@@ -1,7 +1,7 @@
 import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 import { alignSubtitle } from "./subtitle.js";
-import { tidyVocabSpeech } from "./material.js";
+import { tidySpeech } from "./material.js";
 
 const $ = (id) => document.getElementById(id);
 let settings = clampSettings(store.loadSettings(DEFAULTS));
@@ -194,7 +194,7 @@ function start(row, audio, how) {
   if (audioUrl) URL.revokeObjectURL(audioUrl);
   audioUrl = URL.createObjectURL(audio);
   const segIndex = how === "resume" ? resumeIndex(row.doc, store.loadPosition(id)) : 0;
-  tidyVocabSpeech(row.doc);
+  tidySpeech(row.doc);
   engine = new ListeningEngine({ doc: row.doc, audioUrl, mode: row.mode, el: $("audio"), settings, position: { segIndex } });
   window.__engine = engine; // 動作確認用
   window.__systemPause = systemPause;
@@ -278,6 +278,19 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
+// 読み上げの区切りをつないで表示する。日本語・中国語などどうしと句読点の前後には空白を入れない
+const WIDE = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\uAC00-\uD7AF]/;
+function joinForDisplay(texts) {
+  let out = "";
+  for (const t of texts) {
+    const prev = out.slice(-1), next = t[0] || "";
+    const tight = (WIDE.test(prev) && WIDE.test(next)) || /[、。，「『（]/.test(prev) || /[、。，」』）]/.test(next);
+    if (out && !tight) out += " ";
+    out += t;
+  }
+  return out;
+}
+
 function renderPlayer() {
   if (!engine) return;
   const s = engine.snapshot();
@@ -289,7 +302,7 @@ function renderPlayer() {
   }
   // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
   if (step && step.kind === "speech" && !step.cue) {
-    const text = s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group).map((p) => p.text).join(" ");
+    const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group).map((p) => p.text));
     if (text !== spokenText) {
       spokenText = text;
       $("spoken").textContent = text;

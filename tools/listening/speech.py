@@ -18,6 +18,13 @@ PHRASE_POS = ("熟語", "句", "慣用", "表現", "idiom", "phrase", "expressio
 SKIP_POS = ("固有名詞", "proper", "人名", "地名")
 
 LATIN_LANGS = {"en", "es", "fr", "de", "it", "pt", "nl", "id", "vi", "tr", "pl", "sv"}
+# 日本語の説明の中の教材言語（英語・スペイン語・フランス語・中国語）の語句を見つける（app/material.js と同じ）。
+# ラテン文字はアクセント付きの文字と œ も含める
+LATIN = "A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u1E00-\u1EFF"
+HAN_LANGS = {"zh", "yue", "cmn"}
+HAN = "\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF"
+KANA = re.compile("[\u3040-\u30FF\u30FC]")
+PARTICLES = "はがをのもとにでやへ"
 
 # 1秒あたりの目安（通常速度）。解説の長さの見積もりに使う。
 JA_CHARS_PER_SEC = 7.5
@@ -68,47 +75,88 @@ def clean_term(term):
     return re.sub(r"\s+", " ", t).strip(" ,")
 
 
-def split_runs(text, source_lang, target_lang="ja", auto_detect=True):
+def split_runs(text, source_lang, target_lang="ja", auto_detect=True, original=""):
     """日本語の文を [(lang, text)] の並びに分ける。[[...]] は教材言語。
 
-    auto_detect のとき、ラテン文字の言語では2文字以上のラテン文字の並びも教材言語として扱う。
+    auto_detect のとき、教材言語の文字の並びも教材言語として扱う（ラテン文字は2文字以上か原文にある1文字の語、
+    中国語は原文 original にある漢字の並びで日本語の語に見えないもの）。
     """
     runs = []
     pos = 0
     for m in re.finditer(r"\[\[(.+?)\]\]", text):
         if m.start() > pos:
-            runs.extend(_split_plain(text[pos:m.start()], source_lang, target_lang, auto_detect))
+            runs.extend(_split_plain(text[pos:m.start()], source_lang, target_lang, auto_detect, original))
         runs.append((source_lang, m.group(1).strip()))
         pos = m.end()
     if pos < len(text):
-        runs.extend(_split_plain(text[pos:], source_lang, target_lang, auto_detect))
+        runs.extend(_split_plain(text[pos:], source_lang, target_lang, auto_detect, original))
     merged = []
     for lang, t in runs:
         t = t.strip()
-        if not t or re.fullmatch(r"[\s、。,.!?！？]+", t):
+        if not t or re.fullmatch(r"[\s、。,.!?！？，；：…‥・\-‐–—]+", t):
             if merged and t.strip():
                 merged[-1] = (merged[-1][0], merged[-1][1] + t.strip())
             continue
         if merged and merged[-1][0] == lang:
-            merged[-1] = (lang, merged[-1][1] + (" " if lang != target_lang else "") + t)
+            sep = " " if lang != target_lang and lang_base(lang) not in HAN_LANGS else ""
+            merged[-1] = (lang, merged[-1][1] + sep + t)
         else:
             merged.append((lang, t))
     return merged
 
 
-def _split_plain(text, source_lang, target_lang, auto_detect):
-    if not auto_detect or lang_base(source_lang) not in LATIN_LANGS:
+def _script_runs(text, chars, min_len, original=""):
+    # AI・EU・GDP のような略語は、原文に出てこなければ日本語の声で読む（日本語の説明の中の略語なので）
+    found = []
+    for m in re.finditer(f"[{chars}][{chars}'’\\-]*(?:[ ,]+[{chars}][{chars}'’\\-]*)*", text):
+        w = m.group(0)
+        # 1文字の語（スペイン語の a・y、フランス語の à・y）は、原文に同じ語があるときだけ
+        if len(re.sub(r"[ ,]", "", w)) < min_len and not (
+                original and re.fullmatch(r"[a-zà-ÿ]", w) and re.search(f"(^|[^{chars}]){w}([^{chars}]|$)", original)):
+            continue
+        if re.fullmatch(r"[A-Z]{2,5}", w) and w not in original:
+            continue
+        found.append((m.start(), m.end()))
+    return found
+
+
+def _han_runs(text, original):
+    # 中国語（「」の外）: 原文にある漢字の並びで、日本語の語に見えないものだけ。1字なら前が仮名でなく
+    # 後ろが仮名でない（か助詞）とき、2字以上なら前後が両方とも仮名でないとき（「この方法を」は日本語のまま）
+    if not original:
+        return []
+    found = []
+    for m in re.finditer(f"[{HAN}]+", text):
+        w, b, e = m.group(0), m.start(), m.end()
+        if w not in original:
+            continue
+        before = bool(KANA.match(text[b - 1])) if b > 0 else False
+        after_ch = text[e] if e < len(text) else ""
+        after = bool(KANA.match(after_ch)) if after_ch else False
+        if (before or (after and after_ch not in PARTICLES)) if len(w) == 1 else (before and after):
+            continue
+        found.append((b, e))
+    return found
+
+
+def _split_plain(text, source_lang, target_lang, auto_detect, original=""):
+    base = lang_base(source_lang)
+    if not auto_detect:
         return [(target_lang, text)]
+    if base in LATIN_LANGS:
+        found = _script_runs(text, LATIN, 2, original)
+    elif base in HAN_LANGS:
+        found = _han_runs(text, original)
+    else:
+        return [(target_lang, text)]
+    # 教材言語の語句を囲む「」は、語句と一緒に外す（読み上げで区切りになるだけなので）
     out = []
     pos = 0
-    pattern = r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*(?:[ ,]+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*)*"
-    for m in re.finditer(pattern, text):
-        if len(m.group(0).replace(" ", "")) < 2:
-            continue
-        if m.start() > pos:
-            out.append((target_lang, text[pos:m.start()]))
-        out.append((source_lang, m.group(0).strip(" ,")))
-        pos = m.end()
+    for b, e in found:
+        if b > pos:
+            out.append((target_lang, re.sub(r"[「『]$", "", text[pos:b])))
+        out.append((source_lang, text[b:e].strip(" ,")))
+        pos = e + 1 if text[e:e + 1] in ("」", "』") else e
     if pos < len(text):
         out.append((target_lang, text[pos:]))
     return out
@@ -154,11 +202,37 @@ def auto_listening(seg, source_lang, max_vocab=2):
         term = clean_term(w["word"])
         if term and meaning:
             vocab.append({"term": term, "meaning": meaning, "note": ""})
-    grammar = auto_grammar(seg.get("grammar", ""), source_lang)
+    grammar = auto_grammar(seg.get("grammar", ""), source_lang, seg.get("original", ""))
     return {"source": "auto", "vocab": vocab, "grammar": grammar}
 
 
-def auto_grammar(text, source_lang):
+# 中国語: 文法メモで中国語の語句を書くところ（仮名を含まない「」の中と、「正在＋動詞：…」の「：」より前）の漢字の並びは中国語。
+# ただし「動詞」「時間」のような型の説明の語（原文にないもの）は日本語。「」は読み上げ用に整えるときに消えるので、その前に印を付ける
+MARK_OPEN, MARK_CLOSE = "\uE000", "\uE001"
+PLACEHOLDERS = {"動詞", "名詞", "形容詞", "副詞", "助詞", "助動詞", "代名詞", "数詞", "量詞", "介詞", "主語", "述語",
+                "目的語", "補語", "修飾語", "動作", "時間", "場所", "手段", "方法", "人", "物", "事", "数", "数量", "数字", "文", "節", "句",
+                "疑問文", "疑問詞", "名詞句", "動詞句", "主題", "対象", "内容", "結果", "理由", "原因", "条件", "程度", "方向", "状態", "人名",
+                "地名", "否定", "肯定", "単語", "語", "相手", "自分", "誰", "何"}
+
+
+def _mark_han(part, original):
+    return re.sub(f"[{HAN}]+", lambda m: m.group(0) if m.group(0) in PLACEHOLDERS and m.group(0) not in (original or "")
+                  else MARK_OPEN + m.group(0) + MARK_CLOSE, part)
+
+
+def _mark_quoted_source(text, source_lang, original):
+    if lang_base(source_lang) not in HAN_LANGS:
+        return text
+    t = re.sub(r"[「『]([^「」『』]*)[」』]",
+               lambda m: m.group(0) if KANA.search(m.group(1)) else m.group(0)[0] + _mark_han(m.group(1), original) + m.group(0)[-1],
+               text)
+    head = re.match(r"([^：:＝=。、]+)[：:＝=]", t)
+    if head and not KANA.search(head.group(1)) and MARK_OPEN not in head.group(1) and re.search(r"[＋+…]", head.group(1)):
+        t = _mark_han(head.group(1), original) + t[len(head.group(1)):]
+    return t
+
+
+def auto_grammar(text, source_lang, original=""):
     """文法メモを1文の話し言葉にする。式の部分（「…—」の前）は読まない。"""
     t = re.sub(r"【訂正】[^\n]*", "", text or "").strip()
     if not t:
@@ -173,7 +247,7 @@ def auto_grammar(text, source_lang):
     # 先頭が名詞句だけ（例:「間接疑問文。」）なら次の文をつなげて意味が伝わるようにする
     if len(sentences) > 1 and len(s) <= 12:
         s = s.rstrip("。") + "で、" + sentences[1].strip()
-    s = clean_ja(s)
+    s = clean_ja(_mark_quoted_source(s, source_lang, original)).replace(MARK_OPEN, "[[").replace(MARK_CLOSE, "]]")
     if s and not s.endswith(("。", "？", "！")):
         s += "。"
     return s
@@ -204,12 +278,44 @@ def plain_meaning(text):
     return t or text.strip()
 
 
-def vocab_runs(item, source_lang, target_lang="ja"):
+def vocab_runs(item, source_lang, target_lang="ja", original=""):
     runs = [(source_lang, item["term"])]
-    runs.append((target_lang, plain_meaning(item["meaning"].rstrip("。")).rstrip("。") + "。"))
+    meaning = plain_meaning(item["meaning"].rstrip("。")).rstrip("。") + "。"
+    # 意味の中の原語（社会党、Parti Socialiste など）はラテン文字の言語だけ見分ける（漢字は日本語の意味と区別できないので）
+    if lang_base(source_lang) in LATIN_LANGS:
+        runs.extend(split_runs(meaning, source_lang, target_lang, original=original))
+    else:
+        runs.append((target_lang, meaning))
     if item.get("note"):
-        runs.extend(split_runs(item["note"], source_lang, target_lang))
+        runs.extend(split_runs(item["note"], source_lang, target_lang, original=original))
     return runs
+
+
+def speak_listening(sp, source_lang, target_lang="ja"):
+    """読み上げ用の指定（speak）から聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を整える）。"""
+    vocab = [{"term": term, "meaning": plain_meaning(clean_ja(meaning)), "note": ""} for term, meaning in sp["vocab"]]
+    runs = []
+    for lang, text in sp["grammar"]:
+        is_target = lang_base(lang) == lang_base(target_lang)
+        t = clean_ja(text) if is_target else re.sub(r"[「」『』]", "", text).strip(" ")
+        if t:
+            runs.append([target_lang if is_target else lang, t])
+    if runs and runs[-1][0] == target_lang and not runs[-1][1].endswith(("。", "？", "！")):
+        runs[-1][1] += "。"
+    return {"source": "speak", "vocab": vocab, "grammar": " ".join(r[1] for r in runs), "grammarRuns": runs}
+
+
+def _item_runs(listening, item, source_lang, target_lang, original=""):
+    # speak で指定された語彙は、指定どおりの言語で読む（推測しない）
+    if listening.get("source") == "speak":
+        return [(source_lang, item["term"]), (target_lang, item["meaning"].rstrip("。") + "。")]
+    return vocab_runs(item, source_lang, target_lang, original)
+
+
+def _grammar_runs(listening, source_lang, target_lang, original=""):
+    if listening.get("grammarRuns") is not None:
+        return [tuple(r) for r in listening["grammarRuns"]]
+    return split_runs(listening["grammar"], source_lang, target_lang, original=original)
 
 
 def explanation_seconds(listening, source_lang, target_lang="ja", cue_texts=None):
@@ -218,10 +324,10 @@ def explanation_seconds(listening, source_lang, target_lang="ja", cue_texts=None
     if listening.get("vocab"):
         runs.append((target_lang, cues["vocab"]))
         for item in listening["vocab"]:
-            runs.extend(vocab_runs(item, source_lang, target_lang))
+            runs.extend(_item_runs(listening, item, source_lang, target_lang))
     if listening.get("grammar"):
         runs.append((target_lang, cues["grammar"]))
-        runs.extend(split_runs(listening["grammar"], source_lang, target_lang))
+        runs.extend(_grammar_runs(listening, source_lang, target_lang))
     return estimate_seconds(runs, target_lang)
 
 
@@ -240,7 +346,7 @@ def fit_budget(listening, source_lang, target_lang="ja", max_seconds=20.0):
     return listening, notes
 
 
-def build_parts(translation_text, listening, source_lang, target_lang="ja"):
+def build_parts(translation_text, listening, source_lang, target_lang="ja", original=""):
     """読み上げ順のパーツ列。回数・オンオフは再生側で適用する（ここでは全部を並べる）。"""
     parts = [{"type": "original", "role": "first"}]
     if translation_text:
@@ -250,11 +356,11 @@ def build_parts(translation_text, listening, source_lang, target_lang="ja"):
     if listening.get("vocab"):
         parts.append({"type": "cue", "cue": "vocab", "group": "vocab"})
         for item in listening["vocab"]:
-            for lang, text in vocab_runs(item, source_lang, target_lang):
+            for lang, text in _item_runs(listening, item, source_lang, target_lang, original):
                 parts.append(_speech("vocab", lang, text))
     if listening.get("grammar"):
         parts.append({"type": "cue", "cue": "grammar", "group": "grammar"})
-        for lang, text in split_runs(listening["grammar"], source_lang, target_lang):
+        for lang, text in _grammar_runs(listening, source_lang, target_lang, original):
             parts.append(_speech("grammar", lang, text))
     parts.append({"type": "cue", "cue": "again", "group": "again"})
     parts.append({"type": "original", "role": "second"})

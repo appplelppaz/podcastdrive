@@ -103,10 +103,35 @@ export function loadEpisode(raw) {
       }
     }
     if (Array.isArray(s.translationParts)) seg.translationParts = s.translationParts.map((t) => String(t).trim());
+    if (s.speak) {
+      const sp = parseSpeak(s.speak);
+      if (sp.warning) warnings.push(`区間 ${id} の speak: ${sp.warning}`);
+      if (sp.vocab.length || sp.grammar.length) seg.speak = { vocab: sp.vocab, grammar: sp.grammar };
+    }
     out.push(seg);
   });
   out.sort((a, b) => a.begin - b.begin);
   return { metadata: meta, segments: out, warnings };
+}
+
+// 読み上げ用の指定（speak）: 語彙は [原語, 日本語の意味]、文法は [言語, 文] の並び。言語を作る段階で決めておくので、推測しない。
+// {"vocab": [["认真", "真剣に"]], "grammar": [["zh", "原来"], ["ja", "と"], ["zh", "才是"], ["ja", "で、実はこちらこそがそうだった、という気づきを表します。"]]}
+// 項目は {"term", "meaning"} / {"lang", "text"} の形でもよい。Language Drill はこの項目を使わない
+export function parseSpeak(raw) {
+  const vocab = [], grammar = [];
+  let bad = 0;
+  for (const v of (raw && raw.vocab) || []) {
+    const [term, meaning] = Array.isArray(v) ? v : [v && v.term, v && v.meaning];
+    if (typeof term === "string" && typeof meaning === "string" && term.trim() && meaning.trim()) vocab.push([term.trim(), meaning.trim()]);
+    else bad++;
+  }
+  for (const g of (raw && raw.grammar) || []) {
+    const [lang, text] = Array.isArray(g) ? g : [g && g.lang, g && g.text];
+    if (typeof lang === "string" && /^[a-z]{2,3}([-_][A-Za-z0-9]+)*$/i.test(lang.trim()) && typeof text === "string" && text.trim()) {
+      grammar.push([lang.trim(), text.trim()]);
+    } else bad++;
+  }
+  return { vocab, grammar, warning: bad ? `読めない項目 ${bad} 件を使いません` : "" };
 }
 
 // ---------------------------------------------------------------- TTML（Apple Podcasts / Whisper）
@@ -216,6 +241,7 @@ function splitByTtmlSentences(seg, ttml) {
     const words = seg.words.filter((w) => norm(w.word) && norm(text).includes(norm(w.word)));
     const piece = { ...seg, begin: b, end: e, original: text, translation: parts[k], words, grammar: k === 0 ? seg.grammar : "", part: k + 1 };
     delete piece.translationParts;
+    if (k > 0) delete piece.speak;
     return piece;
   });
 }
@@ -254,39 +280,79 @@ export function cleanTerm(term) {
   return strip(t.replace(/\s+/g, " "), " ,");
 }
 
-function splitPlain(text, src, tgt) {
-  if (!LATIN_LANGS.has(langBase(src))) return [[tgt, text]];
+// 日本語の説明の中の教材言語（英語・スペイン語・フランス語・中国語）の語句を見つける。
+// ラテン文字はアクセント付きの文字と œ も含める
+const LATIN = "A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF";
+const HAN_LANGS = new Set(["zh", "yue", "cmn"]);
+const HAN = "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF";
+const KANA = /[\u3040-\u30FF\u30FC]/;
+const PARTICLES = "はがをのもとにでやへ";
+
+// AI・EU・GDP のような略語は、原文に出てこなければ日本語の声で読む（日本語の説明の中の略語なので）
+function scriptRuns(text, chars, minLen, original) {
+  const re = new RegExp(`[${chars}][${chars}'’\\-]*(?:[ ,]+[${chars}][${chars}'’\\-]*)*`, "g");
+  const found = [];
+  for (const m of text.matchAll(re)) {
+    // 1文字の語（スペイン語の a・y、フランス語の à・y）は、原文に同じ語があるときだけ
+    if (m[0].replace(/[ ,]/g, "").length < minLen && !(original && /^[a-zà-ÿ]$/.test(m[0]) &&
+      new RegExp(`(^|[^${chars}])${m[0]}([^${chars}]|$)`).test(original))) continue;
+    if (/^[A-Z]{2,5}$/.test(m[0]) && original !== undefined && !original.includes(m[0])) continue;
+    found.push([m.index, m.index + m[0].length]);
+  }
+  return found;
+}
+
+// 中国語（「」の外）: 漢字は日本語にもあるので、原文にある漢字の並びで、日本語の語に見えないものだけを中国語とみなす。
+// 1字なら前が仮名でなく後ろが仮名でない（か助詞）とき、2字以上なら前後が両方とも仮名でないとき（「この方法を」は日本語のまま）
+function hanRuns(text, original) {
+  if (!original) return [];
+  const found = [];
+  for (const m of text.matchAll(new RegExp(`[${HAN}]+`, "g"))) {
+    const w = m[0], b = m.index, e = b + w.length;
+    if (!original.includes(w)) continue;
+    const before = KANA.test(text[b - 1] || ""), after = KANA.test(text[e] || "");
+    if ([...w].length === 1 ? before || (after && !PARTICLES.includes(text[e])) : before && after) continue;
+    found.push([b, e]);
+  }
+  return found;
+}
+
+function splitPlain(text, src, tgt, original) {
+  const base = langBase(src);
+  let found;
+  if (LATIN_LANGS.has(base)) found = scriptRuns(text, LATIN, 2, original);
+  else if (HAN_LANGS.has(base)) found = hanRuns(text, original);
+  else return [[tgt, text]];
+  // 教材言語の語句を囲む「」は、語句と一緒に外す（読み上げで区切りになるだけなので）
   const out = [];
   let pos = 0;
-  const re = /[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’-]*(?:[ ,]+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’-]*)*/g;
-  for (const m of text.matchAll(re)) {
-    if (m[0].replace(/ /g, "").length < 2) continue;
-    if (m.index > pos) out.push([tgt, text.slice(pos, m.index)]);
-    out.push([src, strip(m[0], " ,")]);
-    pos = m.index + m[0].length;
+  for (const [b, e] of found) {
+    if (b > pos) out.push([tgt, text.slice(pos, b).replace(/[「『]$/, "")]);
+    out.push([src, strip(text.slice(b, e), " ,")]);
+    pos = /^[」』]/.test(text.slice(e)) ? e + 1 : e;
   }
   if (pos < text.length) out.push([tgt, text.slice(pos)]);
   return out;
 }
 
-export function splitRuns(text, src, tgt = "ja") {
+export function splitRuns(text, src, tgt = "ja", original = "") {
   const runs = [];
   let pos = 0;
   for (const m of text.matchAll(/\[\[(.+?)\]\]/g)) {
-    if (m.index > pos) runs.push(...splitPlain(text.slice(pos, m.index), src, tgt));
+    if (m.index > pos) runs.push(...splitPlain(text.slice(pos, m.index), src, tgt, original));
     runs.push([src, m[1].trim()]);
     pos = m.index + m[0].length;
   }
-  if (pos < text.length) runs.push(...splitPlain(text.slice(pos), src, tgt));
+  if (pos < text.length) runs.push(...splitPlain(text.slice(pos), src, tgt, original));
   const merged = [];
   for (let [lang, t] of runs) {
     t = t.trim();
-    if (!t || /^[\s、。,.!?！？]+$/.test(t)) {
+    if (!t || /^[\s、。,.!?！？，；：…‥・\-‐–—]+$/.test(t)) {
       if (merged.length && t.trim()) merged[merged.length - 1][1] += t.trim();
       continue;
     }
     const last = merged[merged.length - 1];
-    if (last && last[0] === lang) last[1] += (lang !== tgt ? " " : "") + t;
+    if (last && last[0] === lang) last[1] += (lang !== tgt && !HAN_LANGS.has(langBase(lang)) ? " " : "") + t;
     else merged.push([lang, t]);
   }
   return merged;
@@ -315,7 +381,29 @@ function rankWords(words) {
   return usable.sort((a, b) => score(b) - score(a) || a[0] - b[0]).map(([, w]) => w);
 }
 
-function autoGrammar(text) {
+// 中国語: 文法メモで中国語の語句を書くところ（仮名を含まない「」の中と、「正在＋動詞：…」の「：」より前）の漢字の並びは中国語。
+// ただし「動詞」「時間」のような型の説明の語（原文にないもの）は日本語。「」は読み上げ用に整えるときに消えるので、その前に印を付ける
+const MARK_OPEN = "\uE000", MARK_CLOSE = "\uE001";
+const PLACEHOLDERS = new Set(["動詞", "名詞", "形容詞", "副詞", "助詞", "助動詞", "代名詞", "数詞", "量詞", "介詞", "主語", "述語",
+  "目的語", "補語", "修飾語", "動作", "時間", "場所", "手段", "方法", "人", "物", "事", "数", "数量", "数字", "文", "節", "句",
+  "疑問文", "疑問詞", "名詞句", "動詞句", "主題", "対象", "内容", "結果", "理由", "原因", "条件", "程度", "方向", "状態", "人名",
+  "地名", "否定", "肯定", "単語", "語", "相手", "自分", "誰", "何"]);
+function markHan(part, original) {
+  return part.replace(new RegExp(`[${HAN}]+`, "g"), (w) =>
+    PLACEHOLDERS.has(w) && !(original || "").includes(w) ? w : MARK_OPEN + w + MARK_CLOSE);
+}
+function markQuotedSource(text, src, original) {
+  if (!HAN_LANGS.has(langBase(src))) return text;
+  let t = text.replace(/[「『]([^「」『』]*)[」』]/g, (q, inner) => (KANA.test(inner) ? q : q[0] + markHan(inner, original) + q[q.length - 1]));
+  const head = t.match(/^([^：:＝=。、]+)[：:＝=]/);
+  if (head && !KANA.test(head[1]) && !head[1].includes(MARK_OPEN) && /[＋+…]/.test(head[1])) {
+    t = markHan(head[1], original) + t.slice(head[1].length);
+  }
+  return t;
+}
+const unmark = (t) => t.split(MARK_OPEN).join("[[").split(MARK_CLOSE).join("]]");
+
+function autoGrammar(text, src, original) {
   let t = (text || "").replace(/【訂正】[^\n]*/g, "").trim();
   if (!t) return "";
   t = t.split("\n")[0];
@@ -325,19 +413,32 @@ function autoGrammar(text) {
   if (!sentences.length) return "";
   let s = sentences[0].trim();
   if (sentences.length > 1 && [...s].length <= 12) s = s.replace(/。+$/, "") + "で、" + sentences[1].trim();
-  s = cleanJa(s);
+  s = unmark(cleanJa(markQuotedSource(s, src, original)));
   if (s && !/[。？！]$/.test(s)) s += "。";
   return s;
 }
 
-function autoListening(seg) {
+function autoListening(seg, src) {
   const vocab = [];
   for (const w of rankWords(seg.words || []).slice(0, 2)) {
     const meaning = cleanJa(pickMeaning(w.meaning, seg.translation || ""));
     const term = cleanTerm(w.word);
     if (term && meaning) vocab.push({ term, meaning, note: "" });
   }
-  return { source: "auto", vocab, grammar: autoGrammar(seg.grammar) };
+  return { source: "auto", vocab, grammar: autoGrammar(seg.grammar, src, seg.original) };
+}
+
+// 読み上げ用の指定（speak）から、聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を読み上げ向けに整える）
+function speakListening(sp, src, tgt) {
+  const vocab = sp.vocab.map(([term, meaning]) => ({ term, meaning: plainMeaning(cleanJa(meaning)), note: "" }));
+  const grammarRuns = [];
+  for (const [lang, text] of sp.grammar) {
+    const t = langBase(lang) === langBase(tgt) ? cleanJa(text) : strip(text.replace(/[「」『』]/g, ""), " ");
+    if (t) grammarRuns.push([langBase(lang) === langBase(tgt) ? tgt : lang, t]);
+  }
+  const last = grammarRuns[grammarRuns.length - 1];
+  if (last && last[0] === tgt && !/[。？！]$/.test(last[1])) last[1] += "。";
+  return { source: "speak", vocab, grammar: grammarRuns.map((r) => r[1]).join(" "), grammarRuns };
 }
 
 // 語彙の意味から「ここでは」「〜という意味です」のような決まり文句を外す（この文での意味なのは当然なので）
@@ -349,23 +450,39 @@ export function plainMeaning(text) {
   return t || text.trim();
 }
 
-// 以前に取り込んだ教材（読み上げの文を保存済み）にも同じ整え方を当てる
-export function tidyVocabSpeech(doc) {
+// 以前に取り込んだ教材（読み上げの文を保存済み）にも同じ整え方を当てる:
+// 語彙の意味の決まり文句を外し、文法の説明は元の文法メモから作り直して教材言語の語句を見分け直す
+// （中国語などが日本語の声で読まれないように）
+export function tidySpeech(doc) {
   const tgt = doc.targetLanguage || "ja";
+  const src = doc.sourceLanguage || "en";
   for (const seg of doc.segments || []) {
-    for (const p of seg.parts || []) {
+    if (!seg.parts) continue;
+    for (const p of seg.parts) {
       if (p.type === "speech" && p.group === "vocab" && p.lang === tgt) {
         p.text = plainMeaning(p.text.replace(/。+$/, "")).replace(/。+$/, "") + "。";
       }
     }
+    const li = seg.listening;
+    if (li && li.source === "auto" && seg.display && typeof seg.display.grammar === "string") {
+      li.grammar = autoGrammar(seg.display.grammar, src, seg.original);
+    }
+    const idx = seg.parts.map((p, i) => (p.type === "speech" && p.group === "grammar" ? i : -1)).filter((i) => i >= 0);
+    if (!idx.length || !li || !li.grammar || li.grammarRuns) continue; // speak の指定どおりの教材は作り直さない
+    const fresh = splitRuns(li.grammar, src, tgt, seg.original || "").map(([lang, t]) => ({ type: "speech", group: "grammar", lang, text: t }));
+    seg.parts.splice(idx[0], idx.length, ...fresh);
   }
   return doc;
 }
 
-const vocabRuns = (item, src, tgt) => [
+// 語彙の意味は日本語。中の原語（社会党、Parti Socialiste など）はラテン文字の言語だけ見分ける（漢字は日本語の意味と区別できないので）
+const meaningRuns = (text, src, tgt, original) =>
+  (LATIN_LANGS.has(langBase(src)) ? splitRuns(text, src, tgt, original) : [[tgt, text]]);
+
+const vocabRuns = (item, src, tgt, original = "") => [
   [src, item.term],
-  [tgt, plainMeaning(item.meaning.replace(/。+$/, "")).replace(/。+$/, "") + "。"],
-  ...(item.note ? splitRuns(item.note, src, tgt) : []),
+  ...meaningRuns(plainMeaning(item.meaning.replace(/。+$/, "")).replace(/。+$/, "") + "。", src, tgt, original),
+  ...(item.note ? splitRuns(item.note, src, tgt, original) : []),
 ];
 
 function estimateSeconds(runs, tgt) {
@@ -377,15 +494,20 @@ function estimateSeconds(runs, tgt) {
   return total;
 }
 
+// speak で指定された語彙・文法は、指定どおりの言語で読む（推測しない）
+const itemRuns = (li, item, src, tgt, original) => (li.source === "speak"
+  ? [[src, item.term], [tgt, item.meaning.replace(/。+$/, "") + "。"]] : vocabRuns(item, src, tgt, original));
+const grammarRuns = (li, src, tgt, original) => li.grammarRuns || splitRuns(li.grammar, src, tgt, original);
+
 function explanationSeconds(li, src, tgt) {
   const runs = [];
   if (li.vocab && li.vocab.length) {
     runs.push([tgt, CUE_TEXTS.vocab]);
-    for (const item of li.vocab) runs.push(...vocabRuns(item, src, tgt));
+    for (const item of li.vocab) runs.push(...itemRuns(li, item, src, tgt));
   }
   if (li.grammar) {
     runs.push([tgt, CUE_TEXTS.grammar]);
-    runs.push(...splitRuns(li.grammar, src, tgt));
+    runs.push(...grammarRuns(li, src, tgt));
   }
   return estimateSeconds(runs, tgt);
 }
@@ -400,7 +522,7 @@ function fitBudget(li, src, tgt) {
   return notes;
 }
 
-function buildParts(translation, li, src, tgt) {
+function buildParts(translation, li, src, tgt, original = "") {
   const speech = (group, lang, text) => ({ type: "speech", group, lang, text });
   const parts = [{ type: "original", role: "first" }];
   if (translation) {
@@ -409,11 +531,11 @@ function buildParts(translation, li, src, tgt) {
   }
   if (li.vocab && li.vocab.length) {
     parts.push({ type: "cue", cue: "vocab", group: "vocab" });
-    for (const item of li.vocab) for (const [lang, text] of vocabRuns(item, src, tgt)) parts.push(speech("vocab", lang, text));
+    for (const item of li.vocab) for (const [lang, text] of itemRuns(li, item, src, tgt, original)) parts.push(speech("vocab", lang, text));
   }
   if (li.grammar) {
     parts.push({ type: "cue", cue: "grammar", group: "grammar" });
-    for (const [lang, text] of splitRuns(li.grammar, src, tgt)) parts.push(speech("grammar", lang, text));
+    for (const [lang, text] of grammarRuns(li, src, tgt, original)) parts.push(speech("grammar", lang, text));
   }
   parts.push({ type: "cue", cue: "again", group: "again" });
   parts.push({ type: "original", role: "second" });
@@ -498,6 +620,10 @@ function mergeFragments(segs, lang) {
       prev.words = prev.words.concat(s.words);
       prev.grammar = [prev.grammar, s.grammar].filter(Boolean).join("\n");
       if (s.pinyin) prev.pinyin = ((prev.pinyin || "") + " " + s.pinyin).trim();
+      if (prev.speak || s.speak) {
+        const a = prev.speak || { vocab: [], grammar: [] }, b = s.speak || { vocab: [], grammar: [] };
+        prev.speak = { vocab: a.vocab.concat(b.vocab), grammar: a.grammar.length ? a.grammar : b.grammar };
+      }
       prev.end = s.end;
       prev.sourceIds.push(s.id);
       continue;
@@ -618,8 +744,10 @@ export function buildMaterial({ json, ttml, fix, name }) {
     if (a) {
       li = { source: "authored", vocab: a.vocab.map((v) => ({ ...v })), grammar: a.grammar || "" };
       if (a.translationSpeech) li.translationSpeech = a.translationSpeech;
+    } else if (s.speak) {
+      li = speakListening(s.speak, src, tgt);
     } else {
-      li = autoListening(s);
+      li = autoListening(s, src);
     }
     for (const v of li.vocab) if (v.note === undefined) v.note = "";
     if (li.vocab.length > 2) {
@@ -645,7 +773,7 @@ export function buildMaterial({ json, ttml, fix, name }) {
       translation: s.translation,
       display,
       listening: li,
-      parts: buildParts(li.translationSpeech || s.translation, li, src, tgt),
+      parts: buildParts(li.translationSpeech || s.translation, li, src, tgt, s.original),
     };
   });
 

@@ -170,6 +170,27 @@ class ValidateTest(Temp):
         self.assertTrue(any("別の行" in w for w in warns))
 
 
+    def test_speak_checks(self):
+        s = self.seg(1, "不急着要证明什么，原来才是善待自己最好的方法。", "訳。", 1, 2)
+        s["grammar"] = "「原来…才是…」＝「実は〜こそが…だった」という気づきの構文。"
+        doc = episode([s])
+        doc["metadata"]["sourceLanguage"] = "zh"
+        path = self.write("zh.json", json.dumps(doc, ensure_ascii=False))
+        errs, _ = validate_json.validate(path)
+        self.assertTrue(any("speak" in e for e in errs), errs)  # 文法があるのに読み上げの指定がない
+        s["speak"] = {"vocab": [["原来", "実は"]], "grammar": [["zh", "原来才是"], ["ja", "は、実はこそが、という気づきを表します。"]]}
+        path = self.write("zh.json", json.dumps(doc, ensure_ascii=False))
+        errs, warns = validate_json.validate(path)
+        self.assertEqual(errs, [])
+        self.assertFalse(any("speak" in w for w in warns), warns)
+        s["speak"]["grammar"] = [["ja", "原来才是は、実はこそが、という気づき。"], ["zh", "これは日本語"], ["en", "x"]]
+        path = self.write("zh.json", json.dumps(doc, ensure_ascii=False))
+        errs, warns = validate_json.validate(path)
+        self.assertTrue(any("\"zh\" か \"ja\"" in e for e in errs), errs)
+        self.assertTrue(any("中国語らしい語" in w for w in warns), warns)
+        self.assertTrue(any("仮名があります" in w for w in warns), warns)
+
+
 class TranscribeTest(Temp):
     """Whisper を使わずに、単語の時刻から文と TTML を作るところを確かめる。"""
 
@@ -245,12 +266,22 @@ class NightlyToolsTest(Temp):
         with open(os.path.join(st["work_dir"], "trans_002.json"), "w", encoding="utf-8") as f:
             json.dump({"3": {"t": "はい。", "w": [], "g": ""}}, f, ensure_ascii=False)
         code, res = self.run_tool("build_json.py", "build", ttml)
+        self.assertEqual(code, 1)  # 語彙のある文に読み上げの指定（s）がない
+        self.assertIn("speak", res["errors"][0])
+        with open(os.path.join(st["work_dir"], "trans_001.json"), "w", encoding="utf-8") as f:
+            json.dump({"1": {"t": "物価は50%上がった。", "w": [{"word": "rose", "meaning": "上がった、増えた", "pos": "動詞"}], "g": "",
+                             "s": {"v": [["rose", "上がった"]], "g": [["en", "rose"], ["ja", "は rise の過去形です。"]]}},
+                       "2": {"t": "スミス氏は同意した。", "w": [], "g": ""}}, f, ensure_ascii=False)
+        code, res = self.run_tool("build_json.py", "build", ttml)
         self.assertEqual((code, res["ok"]), (0, True), res)
+        self.assertTrue(any("原語があります" in w for w in res["warnings"]), res)  # ja の中の rise
         with open(res["json"], encoding="utf-8") as f:
             doc = json.load(f)
         self.assertEqual(doc["metadata"]["channel"], "Daily_ News")
         self.assertEqual(doc["metadata"]["publishDate"], "2026-01-01")
         self.assertEqual(doc["segments"][0]["wordTimings"][0], [1.0, 1.4, "Prices"])
+        self.assertEqual(doc["segments"][0]["speak"], {"vocab": [["rose", "上がった"]], "grammar": [["en", "rose"], ["ja", "は rise の過去形です。"]]})
+        self.assertNotIn("speak", doc["segments"][1])
 
 
 class SkillPackageTest(unittest.TestCase):

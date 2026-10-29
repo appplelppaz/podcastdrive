@@ -133,7 +133,7 @@ async function openMaterial(page, title, button) {
     const e = window.__engine, st = e.step, shown = document.getElementById("spoken").textContent;
     if (!st || st.kind !== "speech" || st.cue || st.group !== "vocab") return false;
     const expected = e.segment.parts.filter((p) => p.type === "speech" && p.group === "vocab").map((p) => p.text).join(" ");
-    return shown === expected && { shown };
+    return shown.replace(/\s/g, "") === expected.replace(/\s/g, "") && { shown }; // 表示は日本語の前後の空白を詰める
   }, null, { timeout: 30000, polling: 20 }).then((h) => h.jsonValue()).catch(() => null);
   check("読み上げ中の語彙の説明を原文の下に表示", sp, sp && sp.shown);
 

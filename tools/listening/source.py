@@ -114,6 +114,12 @@ def load_episode_json(path):
                 warnings.append("区間 %s の wordTimings を読めないため使いません" % s.get("id", i + 1))
         if isinstance(s.get("translationParts"), list):
             seg["translationParts"] = [str(t).strip() for t in s["translationParts"]]
+        if s.get("speak"):
+            sp_vocab, sp_grammar, bad = parse_speak(s["speak"])
+            if bad:
+                warnings.append("区間 %s の speak: 読めない項目 %d 件を使いません" % (s.get("id", i + 1), bad))
+            if sp_vocab or sp_grammar:
+                seg["speak"] = {"vocab": sp_vocab, "grammar": sp_grammar}
         out.append(seg)
     out.sort(key=lambda x: x["begin"])
     return {"metadata": meta, "segments": out, "warnings": warnings}
@@ -184,6 +190,31 @@ def align_segment(seg, ttml, snap_tolerance=0.06):
     return begin, end, info
 
 
+def parse_speak(raw):
+    """読み上げ用の指定（speak）を [原語, 意味] と [言語, 文] の並びにする（app/material.js の parseSpeak と同じ）。
+
+    {"vocab": [["认真", "真剣に"]], "grammar": [["zh", "原来"], ["ja", "と"], ["zh", "才是"], ["ja", "で、実はこちらこそがそうだった、という気づきを表します。"]]}
+    項目は {"term", "meaning"} / {"lang", "text"} の形でもよい。
+    """
+    vocab, grammar, bad = [], [], 0
+    for v in (raw or {}).get("vocab") or []:
+        term, meaning = (v[0], v[1]) if isinstance(v, list) and len(v) >= 2 else \
+            ((v.get("term"), v.get("meaning")) if isinstance(v, dict) else (None, None))
+        if isinstance(term, str) and isinstance(meaning, str) and term.strip() and meaning.strip():
+            vocab.append([term.strip(), meaning.strip()])
+        else:
+            bad += 1
+    for g in (raw or {}).get("grammar") or []:
+        lang, text = (g[0], g[1]) if isinstance(g, list) and len(g) >= 2 else \
+            ((g.get("lang"), g.get("text")) if isinstance(g, dict) else (None, None))
+        if isinstance(lang, str) and re.fullmatch(r"[a-zA-Z]{2,3}([-_][A-Za-z0-9]+)*", lang.strip()) \
+                and isinstance(text, str) and text.strip():
+            grammar.append([lang.strip(), text.strip()])
+        else:
+            bad += 1
+    return vocab, grammar, bad
+
+
 def split_by_ttml_sentences(seg, ttml):
     """1区間に複数の文が入っていて、文ごとの訳（translationParts）があるときだけ、TTMLの文の時刻で分ける。
 
@@ -205,6 +236,8 @@ def split_by_ttml_sentences(seg, ttml):
         out.append(dict(seg, begin=b, end=e, original=text, translation=tr, words=words,
                         grammar=seg["grammar"] if k == 1 else "", part=k))
         out[-1].pop("translationParts", None)
+        if k > 1:
+            out[-1].pop("speak", None)
     return out
 
 
