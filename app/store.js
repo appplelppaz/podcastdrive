@@ -37,7 +37,7 @@ async function tx(stores, mode, fn) {
     t.oncomplete = () => resolve(result && "result" in result ? result.result : result);
     t.onerror = () => reject(t.error);
     // 容量不足などで中止されたときも、待ち続けずに失敗を返す
-    t.onabort = () => reject(t.error || new Error("Could not save on this device (storage may be full)"));
+    t.onabort = () => reject(t.error || new Error("Could not save (storage may be full)"));
   });
 }
 
@@ -83,7 +83,7 @@ export async function ensureRefined(row, audio) {
 export async function getAudio(row) {
   if (row.audio instanceof Blob) return row.audio;
   const rec = await tx(AUDIO, "readonly", (a) => a.get(row.id));
-  if (!rec) throw new Error("The audio for this episode is missing. Delete it and import it again.");
+  if (!rec) throw new Error("Audio missing. Delete and add it again.");
   return new Blob([rec.data], { type: rec.type || "audio/mpeg" });
 }
 
@@ -120,7 +120,7 @@ export async function importFiles(fileList) {
   for (const f of fileList) {
     const kind = kindOf(f.name);
     if (!kind) {
-      if (!SIDE_FILE.test(f.name)) errors.push(`${f.name}: skipped (not an .mp3, .json or .ttml file)`);
+      if (!SIDE_FILE.test(f.name)) errors.push(`${f.name}: skipped (not .mp3, .json or .ttml)`);
       continue;
     }
     const key = stemOf(f.name);
@@ -144,7 +144,7 @@ export async function importFiles(fileList) {
       } else if (g.json && g.audio) {
         imported.push(await importSources(g));
       } else if (g.json || g.ttml || g.fix) {
-        errors.push(`${label}: also select the audio file (.mp3) with the same name`);
+        errors.push(`${label}: add its .mp3 too`);
       } else {
         errors.push(`${label}: also select the JSON file with the same name`);
       }
@@ -152,7 +152,7 @@ export async function importFiles(fileList) {
       errors.push(`${label}: ${err.message}`);
     }
   }
-  if (!imported.length && !errors.length) errors.push("Select the episode's .mp3 and .json files (and .ttml if you have it)");
+  if (!imported.length && !errors.length) errors.push("Select .mp3 and .json (and .ttml)");
   return { imported, errors };
 }
 
@@ -228,11 +228,11 @@ async function importDoc(doc, findFile, onlyAudio = null) {
   }
   if (!audio) {
     const want = [sprite && sprite.file, doc.sources && doc.sources.audio && doc.sources.audio.file].filter(Boolean);
-    throw new Error("Also select the audio file: " + want.join(" or "));
+    throw new Error("Add the audio too: " + want.join(" or "));
   }
   const expected = mode === "sprite" ? sprite.sha256 : doc.sources.audio.sha256;
   if (expected && (await sha256(audio)) !== expected) {
-    throw new Error("The audio differs from the one this JSON was made for (sentences would be misaligned), so it was not imported");
+    throw new Error("This audio does not match the JSON, so it was not added");
   }
   const row = {
     id: doc.materialId,

@@ -23,7 +23,10 @@
   --alarm: #FF8A70;   /* 削除・エラー */
   --rule: #22324F;
   --on-dial: #0D1830;
-  --font: "Atkinson Hyperlegible", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  /* 画面の言葉（英語）と学ぶ言語の文は Atkinson Hyperlegible、日本語の訳・説明は端末の日本語書体 */
+  --font: "Atkinson Hyperlegible", "Hiragino Sans", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --font-source: var(--font);
+  --font-ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -32,7 +35,11 @@
     --rule: #D5DCE7; --on-dial: #FFFFFF; color-scheme: light;
   }
 }
-:lang(zh) { font-family: "Atkinson Hyperlegible", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", system-ui, sans-serif; }
+.subtitle, .hero-line, .sentences .o, .library .name, .hero-title, .ep-title { font-family: var(--font-source); }
+.subtitle:lang(zh), .hero-line:lang(zh), .sentences .o:lang(zh) {
+  font-family: "Atkinson Hyperlegible", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", system-ui, sans-serif; }
+[hidden] { display: none !important; }
+:lang(ja) { font-family: var(--font-ja); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--night); color: var(--lamp); font: 17px/1.55 var(--font);
@@ -66,13 +73,58 @@ code { font-family: inherit; font-weight: 700; }
 .library li { background: var(--panel); border-radius: 14px; padding: 16px 16px 10px; }
 .library .name { font-weight: 700; font-size: 19px; line-height: 1.3; }
 .library .channel { color: var(--haze); font-size: 15px; margin-top: 2px; }
-.library .track { height: 4px; border-radius: 2px; background: var(--rule); margin: 12px 0 6px; overflow: hidden; }
-.library .track span { display: block; height: 100%; background: var(--dial); }
+.library .track { margin: 12px 0 6px; }
 .library .meta { color: var(--haze); font-size: 15px; margin-top: 6px; }
 .library .note { color: var(--alarm); font-size: 15px; margin-top: 4px; }
 .library .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
 .library .actions .start { margin-right: 4px; }
 .library .delete { margin-left: auto; color: var(--alarm); }
+
+.icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
+  background: var(--panel); color: var(--lamp); font: inherit; font-size: 30px; line-height: 1; cursor: pointer; }
+.back-btn { margin-left: -6px; background: none; color: var(--haze); font-size: 36px; }
+.danger { color: var(--alarm); margin-top: 18px; }
+
+/* ホームの一番上: 止めた文そのものを大きく（この画面で一番目立つところ） */
+.hero { margin: 8px 0 4px; padding: 18px; background: var(--panel); border-radius: 18px; }
+.hero-where { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; color: var(--haze); font-size: 15px; }
+.lang-tag { color: var(--dial); font-weight: 700; }
+.lang-tag:empty { display: none; }
+.hero-title { margin: 4px 0 0; font-size: 17px; line-height: 1.35; font-weight: 700; color: var(--haze); }
+.hero-line { margin: 14px 0 0; padding-left: 14px; border-left: 4px solid var(--dial);
+  font-size: 26px; line-height: 1.35; font-weight: 700; color: var(--lamp); overflow-wrap: break-word; }
+.hero .track { margin: 16px 0 6px; }
+.hero-meta { margin: 0; color: var(--haze); font-size: 15px; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+
+/* 言語の切り替え */
+.tabs { display: flex; gap: 6px; overflow-x: auto; margin: 0 -20px 12px; padding: 2px 20px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; min-height: 40px; padding: 0 16px; border-radius: 20px; border: 0; background: var(--panel); color: var(--lamp);
+  font: inherit; font-weight: 700; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--lamp); color: var(--night); }
+
+.card-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.card-open .name { display: block; }
+.card-open .channel { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.track { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.track span { display: block; height: 100%; background: var(--dial); }
+
+/* エピソード: 文を選んで再生 */
+.ep-title { font-size: 26px; margin: 6px 0 14px; }
+.ep-meta { color: var(--haze); font-size: 15px; margin: 6px 0 0; }
+.ep-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+.sentences { list-style: none; margin: 0; padding: 0; }
+.sentences li { border-top: 1px solid var(--rule); }
+.sentences button { display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 0 10px; width: 100%; padding: 14px 4px;
+  border: 0; background: none; color: var(--lamp); font: inherit; text-align: left; cursor: pointer; }
+.sentences .t { grid-row: span 2; color: var(--haze); font-size: 14px; padding-top: 3px; }
+.sentences .o { font-size: 18px; line-height: 1.45; font-weight: 700; overflow-wrap: break-word; }
+.sentences .j { font-size: 15px; line-height: 1.5; color: var(--haze); }
+.sentences .here button { background: var(--panel); border-radius: 12px; }
+.sentences .here .o, .sentences .here .j { border-left: 4px solid var(--dial); padding-left: 10px; }
+.sentences .here .j { padding-top: 2px; }
+.sentences .here .t { color: var(--dial); font-weight: 700; }
 
 .settings { background: var(--panel); border-radius: 14px; padding: 2px 16px 8px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; border-top: 1px solid var(--rule); }

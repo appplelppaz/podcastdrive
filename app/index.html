@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Listen">
-<title>Listening Mode</title>
+<meta name="apple-mobile-web-app-title" content="Listening">
+<title>Listening</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
@@ -75,62 +75,91 @@
 </script>
 </head>
 <body>
-<main id="setup" class="screen">
-  <header class="bar"><h1>Listening</h1></header>
+<main id="home" class="screen">
+  <header class="bar">
+    <h1>Listening</h1>
+    <button id="openSettings" class="icon-btn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.5 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+  </header>
   <div id="appError" class="status error" role="alert" hidden></div>
 
+  <section id="hero" class="hero" aria-labelledby="heroTitle" hidden>
+    <p class="hero-where"><span id="heroLang" class="lang-tag"></span><span id="heroChannel"></span></p>
+    <h2 id="heroTitle" class="hero-title"></h2>
+    <p id="heroLine" class="hero-line"></p>
+    <div class="track" aria-hidden="true"><span id="heroTrack"></span></div>
+    <p id="heroMeta" class="hero-meta"></p>
+    <div class="hero-actions">
+      <button id="heroPlay" class="button" type="button">Continue</button>
+      <button id="heroPick" class="button outline" type="button">Sentences</button>
+    </div>
+  </section>
+
   <section aria-labelledby="libraryTitle">
-    <h2 id="libraryTitle">Library</h2>
+    <h2 id="libraryTitle">Episodes</h2>
+    <div id="langTabs" class="tabs" role="tablist" hidden></div>
     <ul id="library" class="library"></ul>
-    <p id="libraryEmpty" class="hint">No episodes yet. Add one below to start listening.</p>
+    <p id="libraryEmpty" class="hint">No episodes yet.</p>
     <label class="button file">
       Add episodes
       <input id="fileInput" type="file" multiple>
     </label>
-    <p class="hint">Choose each episode's <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together, plus its <code>.fix.json</code> if it has one. You can add several episodes at once.</p>
+    <p class="hint">Select <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together.</p>
     <p id="importStatus" class="status" role="status"></p>
   </section>
+</main>
 
-  <section aria-labelledby="settingsTitle">
-    <h2 id="settingsTitle">Settings</h2>
-    <div class="settings">
-      <h3>Playback</h3>
-      <div class="row"><span>Play the original first</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
-      <div class="row"><span>Play it again after the notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
+<main id="episode" class="screen" hidden>
+  <header class="bar"><button id="episodeBack" class="icon-btn back-btn" type="button" aria-label="Back">‹</button></header>
+  <p class="hero-where"><span id="epLang" class="lang-tag"></span><span id="epChannel"></span></p>
+  <h1 id="epTitle" class="ep-title"></h1>
+  <div class="track" aria-hidden="true"><span id="epTrack"></span></div>
+  <p id="epMeta" class="ep-meta"></p>
+  <div id="epNotes"></div>
+  <div id="epActions" class="ep-actions"></div>
+  <h2>Sentences</h2>
+  <ol id="sentences" class="sentences"></ol>
+  <button id="epDelete" class="link danger" type="button">Delete episode</button>
+</main>
+
+<main id="settingsScreen" class="screen" hidden>
+  <header class="bar"><button id="settingsBack" class="icon-btn back-btn" type="button" aria-label="Back">‹</button></header>
+  <h1>Settings</h1>
+  <div class="settings">
+      <h3>Original</h3>
+      <div class="row"><span>Before notes</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
+      <div class="row"><span>After notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
       <div class="row slider"><label for="originalRate">Original speed <output data-for="originalRate"></output></label>
         <input id="originalRate" data-key="originalRate" type="range" min="0.5" max="1.5" step="0.05"></div>
       <div class="row slider"><label for="translationRate">Translation speed <output data-for="translationRate"></output></label>
         <input id="translationRate" data-key="translationRate" type="range" min="0.5" max="2" step="0.05"></div>
       <div class="row slider"><label for="explanationRate">Notes speed <output data-for="explanationRate"></output></label>
         <input id="explanationRate" data-key="explanationRate" type="range" min="0.5" max="2" step="0.05"></div>
-      <div class="row slider"><label for="gapSeconds">Pause between sentences <output data-for="gapSeconds"></output></label>
+      <div class="row slider"><label for="gapSeconds">Gap <output data-for="gapSeconds"></output></label>
         <input id="gapSeconds" data-key="gapSeconds" type="range" min="0" max="3" step="0.1"></div>
 
-      <h3>Reading aloud</h3>
-      <div class="row"><label for="translation">Japanese translation</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
+      <h3>Read aloud</h3>
+      <div class="row"><label for="translation">Translation</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
       <div class="row"><label for="vocab">Vocabulary</label><input id="vocab" data-key="vocab" type="checkbox" class="switch"></div>
-      <div class="row"><label for="grammar">Grammar and background</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
-      <div class="row"><label for="cues">Spoken cues before notes</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
+      <div class="row"><label for="grammar">Grammar</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
+      <div class="row"><label for="cues">Cues</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
 
       <h3>Device</h3>
-      <div class="row"><label for="repeatEpisode">Repeat the episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
-      <div class="row"><label for="keepAwake">Keep the screen on while playing</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
-      <div class="row"><label for="carPrevious">“Previous” in the car</label>
+      <div class="row"><label for="repeatEpisode">Repeat episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
+      <div class="row"><label for="keepAwake">Keep screen on</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
+      <div class="row"><label for="carPrevious">Car “previous”</label>
         <select id="carPrevious" data-key="carPrevious">
           <option value="previous">Previous sentence</option>
           <option value="restart">Restart sentence</option>
         </select></div>
       <div class="row buttons">
-        <button id="resetSettings" class="link" type="button">Reset settings</button>
-        <button id="exportSettings" class="link" type="button">Export settings</button>
+        <button id="resetSettings" class="link" type="button">Reset</button>
+        <button id="exportSettings" class="link" type="button">Export</button>
       </div>
     </div>
-  </section>
 
   <section class="help" aria-labelledby="helpTitle">
-    <h2 id="helpTitle">While playing</h2>
-    <p class="hint">Tap the screen to pause or resume. Swipe left for the next sentence and right for the previous one. Hold to hear the sentence again from the start.</p>
-    <p class="hint">Translations and notes use your device's voice, so keep the screen on for reliable playback.</p>
+    <h2 id="helpTitle">Gestures</h2>
+    <p class="hint">Tap: pause. Swipe left: next. Swipe right: previous. Hold: restart.</p>
   </section>
 </main>
 

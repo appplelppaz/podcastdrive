@@ -378,7 +378,7 @@ export class ListeningEngine extends EventTarget {
       if (result && String(result).startsWith("error")) {
         this.halt();
         const blocked = String(result).includes("NotAllowedError");
-        const message = blocked ? "Tap to start playback" : "Playback failed (" + result + ")";
+        const message = blocked ? "Tap to play" : "Playback failed (" + result + ")";
         this.dispatchEvent(new CustomEvent("error", { detail: { message, blocked } }));
         this.emit();
         return;
