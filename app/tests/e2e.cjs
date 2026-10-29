@@ -158,6 +158,9 @@ async function openMaterial(page, title, button) {
   await page.mouse.move(cx, cy); await page.mouse.down(); await sleep(800); await page.mouse.up();
   check("長押しで今の文を最初から", await page.evaluate(() => window.__engine.stepIndex === 0 && window.__engine.playing && window.__engine.segIndex) === before);
   await page.screenshot({ path: path.join(DIR, "player-390.png") });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({ path: path.join(DIR, "player-390-dark.png") });
+  await page.emulateMedia({ colorScheme: "light" });
 
   // ---- 教材ごとの再生履歴
   await page.click("#back");
@@ -165,12 +168,16 @@ async function openMaterial(page, title, button) {
   await page.evaluate(() => window.__engine.goto(1));
   await waitFor(page, () => window.__engine.log.at(-1).seg === "s002");
   await page.click("#back");
-  await waitFor(page, (t) => [...document.querySelectorAll("#library li")].some((li) => li.textContent.includes(t) && li.textContent.includes("Last:")), titleB);
+  await waitFor(page, (t) => [...document.querySelectorAll("#library li")].some((li) => li.textContent.includes(t) && li.textContent.includes("Stopped at")), titleB);
   const metaA = await page.locator("#library li", { hasText: titleA }).locator(".meta").textContent();
   const metaB = await page.locator("#library li", { hasText: titleB }).locator(".meta").textContent();
-  check("教材ごとに前回の位置を表示（A）", /Last: sentence 3 of 4/.test(metaA), metaA);
-  check("教材ごとに前回の位置を表示（B）", /Last: sentence 2 of 3/.test(metaB), metaB);
+  check("教材ごとに前回の位置を表示（A）", /Stopped at sentence 3 of 4/.test(metaA), metaA);
+  check("教材ごとに前回の位置を表示（B）", /Stopped at sentence 2 of 3/.test(metaB), metaB);
   await page.screenshot({ path: path.join(DIR, "setup-390.png"), fullPage: true });
+  check("画面の幅からはみ出さない", await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+  await page.emulateMedia({ colorScheme: "dark" }); // 暗い画面（夜の運転）の見た目も残す
+  await page.screenshot({ path: path.join(DIR, "setup-390-dark.png"), fullPage: true });
+  await page.emulateMedia({ colorScheme: "light" });
   await page.reload();
   await page.waitForSelector("#library li .resume");
   await openMaterial(page, titleA, ".resume");
@@ -200,8 +207,8 @@ async function openMaterial(page, title, button) {
   ]);
   await waitFor(page, () => /Imported/.test(document.getElementById("importStatus").textContent));
   const st = await page.textContent("#importStatus");
-  const metaA2 = await page.locator("#library li", { hasText: titleA }).first().locator(".meta").textContent(); // 新しいものが先頭
-  check("octet-stream の .ttml も取り込む", /Imported/.test(st) && !/no transcript timing/.test(metaA2), metaA2);
+  const metaA2 = await page.locator("#library li", { hasText: titleA }).first().textContent(); // 新しいものが先頭
+  check("octet-stream の .ttml も取り込む", /Imported/.test(st) && !/No transcript timing/.test(metaA2), metaA2);
   check("対象外のファイルは理由を表示", /notes\.txt: skipped/.test(st), st.replace(/\n/g, " / "));
 
   // ---- 以前の版で音声を Blob として行に保存した教材も再生できる

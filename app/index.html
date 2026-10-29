@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0D1830">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -76,51 +76,62 @@
 </head>
 <body>
 <main id="setup" class="screen">
-  <header class="bar"><h1>Listening Mode</h1></header>
+  <header class="bar"><h1>Listening</h1></header>
   <div id="appError" class="status error" role="alert" hidden></div>
 
-  <section>
-    <h2>Library</h2>
+  <section aria-labelledby="libraryTitle">
+    <h2 id="libraryTitle">Library</h2>
     <ul id="library" class="library"></ul>
-    <p id="libraryEmpty" class="hint">No materials yet.</p>
-    <p class="hint">Select an episode's <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together (and its <code>.fix.json</code> if there is one). You can select several episodes at once.</p>
-    <label class="button outline file">
-      Add material
+    <p id="libraryEmpty" class="hint">No episodes yet. Add one below to start listening.</p>
+    <label class="button file">
+      Add episodes
       <input id="fileInput" type="file" multiple>
     </label>
+    <p class="hint">Choose each episode's <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together, plus its <code>.fix.json</code> if it has one. You can add several episodes at once.</p>
     <p id="importStatus" class="status" role="status"></p>
   </section>
 
-  <section>
-    <h2>Settings</h2>
-    <div class="row"><span>Original — first</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
-    <div class="row"><span>Original — after notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
-    <div class="row slider"><label for="originalRate">Original speed <output data-for="originalRate"></output></label>
-      <input id="originalRate" data-key="originalRate" type="range" min="0.5" max="1.5" step="0.05"></div>
-    <div class="row slider"><label for="translationRate">Translation speed <output data-for="translationRate"></output></label>
-      <input id="translationRate" data-key="translationRate" type="range" min="0.5" max="2" step="0.05"></div>
-    <div class="row slider"><label for="explanationRate">Notes speed <output data-for="explanationRate"></output></label>
-      <input id="explanationRate" data-key="explanationRate" type="range" min="0.5" max="2" step="0.05"></div>
-    <div class="row slider"><label for="gapSeconds">Pause between sentences <output data-for="gapSeconds"></output></label>
-      <input id="gapSeconds" data-key="gapSeconds" type="range" min="0" max="3" step="0.1"></div>
-    <div class="row"><label for="translation">Japanese translation</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
-    <div class="row"><label for="vocab">Vocabulary</label><input id="vocab" data-key="vocab" type="checkbox" class="switch"></div>
-    <div class="row"><label for="grammar">Grammar &amp; background</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
-    <div class="row"><label for="cues">Voice cues</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
-    <div class="row"><label for="repeatEpisode">Repeat episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
-    <div class="row"><label for="keepAwake">Keep screen on while playing</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
-    <div class="row"><label for="carPrevious">Car / lock-screen “previous”</label>
-      <select id="carPrevious" data-key="carPrevious">
-        <option value="previous">Previous sentence</option>
-        <option value="restart">Restart sentence</option>
-      </select></div>
-    <div class="row buttons">
-      <button id="resetSettings" class="link" type="button">Reset to defaults</button>
-      <button id="exportSettings" class="link" type="button">Export settings</button>
+  <section aria-labelledby="settingsTitle">
+    <h2 id="settingsTitle">Settings</h2>
+    <div class="settings">
+      <h3>Playback</h3>
+      <div class="row"><span>Play the original first</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
+      <div class="row"><span>Play it again after the notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
+      <div class="row slider"><label for="originalRate">Original speed <output data-for="originalRate"></output></label>
+        <input id="originalRate" data-key="originalRate" type="range" min="0.5" max="1.5" step="0.05"></div>
+      <div class="row slider"><label for="translationRate">Translation speed <output data-for="translationRate"></output></label>
+        <input id="translationRate" data-key="translationRate" type="range" min="0.5" max="2" step="0.05"></div>
+      <div class="row slider"><label for="explanationRate">Notes speed <output data-for="explanationRate"></output></label>
+        <input id="explanationRate" data-key="explanationRate" type="range" min="0.5" max="2" step="0.05"></div>
+      <div class="row slider"><label for="gapSeconds">Pause between sentences <output data-for="gapSeconds"></output></label>
+        <input id="gapSeconds" data-key="gapSeconds" type="range" min="0" max="3" step="0.1"></div>
+
+      <h3>Reading aloud</h3>
+      <div class="row"><label for="translation">Japanese translation</label><input id="translation" data-key="translation" type="checkbox" class="switch"></div>
+      <div class="row"><label for="vocab">Vocabulary</label><input id="vocab" data-key="vocab" type="checkbox" class="switch"></div>
+      <div class="row"><label for="grammar">Grammar and background</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
+      <div class="row"><label for="cues">Spoken cues before notes</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
+
+      <h3>Device</h3>
+      <div class="row"><label for="repeatEpisode">Repeat the episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
+      <div class="row"><label for="keepAwake">Keep the screen on while playing</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
+      <div class="row"><label for="carPrevious">“Previous” in the car</label>
+        <select id="carPrevious" data-key="carPrevious">
+          <option value="previous">Previous sentence</option>
+          <option value="restart">Restart sentence</option>
+        </select></div>
+      <div class="row buttons">
+        <button id="resetSettings" class="link" type="button">Reset settings</button>
+        <button id="exportSettings" class="link" type="button">Export settings</button>
+      </div>
     </div>
   </section>
-  <p class="hint center">Plays automatically to the end. Translations and notes are read with your device's voice; keep the screen on for reliable playback.</p>
-  <p class="hint center">While playing: tap to pause / resume · swipe ← next · swipe → previous · hold to restart the sentence.</p>
+
+  <section class="help" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">While playing</h2>
+    <p class="hint">Tap the screen to pause or resume. Swipe left for the next sentence and right for the previous one. Hold to hear the sentence again from the start.</p>
+    <p class="hint">Translations and notes use your device's voice, so keep the screen on for reliable playback.</p>
+  </section>
 </main>
 
 <main id="player" class="screen player" hidden>

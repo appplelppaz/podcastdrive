@@ -65,12 +65,11 @@ $("exportSettings").onclick = () => {
 
 // ---------------------------------------------------------------- 教材一覧（教材ごとの再生履歴）
 
-function historyText(row) {
-  const pos = store.loadPosition(row.id);
+function historyText(row, pos) {
   if (!pos) return "Not started";
   const when = new Date(pos.savedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  if (pos.finished) return `Finished · ${when}`;
-  return `Last: sentence ${pos.segIndex + 1} of ${row.segments} · ${when}`;
+  if (pos.finished) return `Finished on ${when}`;
+  return `Stopped at sentence ${pos.segIndex + 1} of ${row.segments} on ${when}`;
 }
 
 async function renderLibrary() {
@@ -84,13 +83,21 @@ async function renderLibrary() {
     const resumable = pos && !pos.finished && pos.segIndex > 0;
     const li = document.createElement("li");
     li.dataset.id = row.id;
-    li.innerHTML = `<div class="name"></div><div class="meta"></div><div class="actions"></div>`;
+    li.innerHTML = `<div class="name"></div><div class="channel"></div><div class="track" aria-hidden="true"><span></span></div>` +
+      `<div class="meta"></div><div class="actions"></div>`;
     li.querySelector(".name").textContent = row.title;
+    li.querySelector(".channel").textContent = `${row.channel ? row.channel + ", " : ""}${row.segments} sentences`;
+    // どこまで聞いたかを琥珀色の線で見せる
+    const done = !pos ? 0 : pos.finished ? 1 : pos.segIndex / Math.max(1, row.segments);
+    li.querySelector(".track span").style.width = (done * 100).toFixed(1) + "%";
+    li.querySelector(".meta").textContent = historyText(row, pos);
     const notes = [];
-    if (row.mode === "direct" && row.hasTtml === false) notes.push("no transcript timing");
-    if (row.translationMismatch) notes.push("⚠ translations may not match the audio");
-    li.querySelector(".meta").textContent =
-      `${row.channel ? row.channel + " · " : ""}${row.segments} sentences${notes.length ? " · " + notes.join(" · ") : ""} — ${historyText(row)}`;
+    if (row.mode === "direct" && row.hasTtml === false) notes.push("No transcript timing, so subtitles follow the sentence only.");
+    if (row.translationMismatch) notes.push("The translations may not match the audio. Add its .fix.json if you have one.");
+    for (const n of notes) {
+      const el = Object.assign(document.createElement("div"), { className: "note", textContent: n });
+      li.querySelector(".actions").before(el);
+    }
     const actions = li.querySelector(".actions");
     const add = (label, cls, fn) => {
       const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
@@ -98,10 +105,10 @@ async function renderLibrary() {
       actions.append(b);
     };
     if (resumable) {
-      add(`Resume (${pos.segIndex + 1})`, "start resume", () => open(row.id, "resume"));
+      add("Continue", "start resume", () => open(row.id, "resume"));
       add("Start over", "outline from-start", () => open(row.id, "start"));
     } else {
-      add("Start", "start", () => open(row.id, "start"));
+      add(pos && pos.finished ? "Listen again" : "Start", "start", () => open(row.id, "start"));
     }
     add("Delete", "outline delete", async () => {
       if (!confirm(`Delete “${row.title}” from this device?`)) return;
@@ -115,11 +122,11 @@ async function renderLibrary() {
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
   status.className = "status";
-  status.textContent = "Importing… (matching sentences to the audio, this takes a few seconds)";
+  status.textContent = "Adding… Matching sentences to the audio takes a few seconds.";
   try {
     const { imported, errors } = await store.importFiles(e.target.files);
-    const lines = imported.map((r) => `Imported “${r.title}”` +
-      (r.translationMismatch ? " — ⚠ the translations may not match the audio. If you have its .fix.json, import it together." : ""));
+    const lines = imported.map((r) => `Imported “${r.title}”.` +
+      (r.translationMismatch ? " The translations may not match the audio. Add its .fix.json with it if you have one." : ""));
     status.textContent = [...lines, ...errors].join("\n");
     if (errors.length || imported.some((r) => r.translationMismatch)) status.className = "status error";
   } catch (err) {
@@ -278,15 +285,16 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-// 読み上げの区切りをつないで表示する。日本語・中国語などどうしと句読点の前後には空白を入れない
-const WIDE = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\uAC00-\uD7AF]/;
-function joinForDisplay(texts) {
-  let out = "";
-  for (const t of texts) {
-    const prev = out.slice(-1), next = t[0] || "";
-    const tight = (WIDE.test(prev) && WIDE.test(next)) || /[、。，「『（]/.test(prev) || /[、。，」』）]/.test(next);
+// 読み上げの区切りをつないで表示する。言語が変わるところ（原語とその説明の間）には空白を入れて切れ目を見せる。
+// 同じ言語の続き（日本語・中国語どうし）、句読点の前、開き括弧の後には空白を入れない
+function joinForDisplay(parts) {
+  let out = "", lastLang = null;
+  for (const { lang, text } of parts) {
+    const prev = out.slice(-1), next = text[0] || "";
+    const tight = /[「『（]/.test(prev) || /[、。，」』）]/.test(next) || (lang === lastLang && /[^\x00-\x7F]/.test(prev + next));
     if (out && !tight) out += " ";
-    out += t;
+    out += text;
+    lastLang = lang;
   }
   return out;
 }
@@ -302,7 +310,7 @@ function renderPlayer() {
   }
   // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
   if (step && step.kind === "speech" && !step.cue) {
-    const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group).map((p) => p.text));
+    const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group));
     if (text !== spokenText) {
       spokenText = text;
       $("spoken").textContent = text;

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 聞き流しアプリのアイコン（docs/design.md）: 藍色の地に、再生画面の字幕そのもの。
+       1行目は原文（読み終えた語・いま読んでいる琥珀色の語・まだの語）、
+       その下は琥珀色の線を左に置いた訳と説明（再生画面と同じ形） -->
+  <rect width="512" height="512" fill="#0D1830"/>
+  <rect x="84"  y="144" width="104" height="60" rx="30" fill="#F4ECDF"/>
+  <rect x="208" y="144" width="132" height="60" rx="30" fill="#F5A524"/>
+  <rect x="360" y="144" width="68"  height="60" rx="30" fill="#3A4D70"/>
+  <rect x="84"  y="244" width="12"  height="124" rx="6" fill="#F5A524"/>
+  <rect x="120" y="244" width="280" height="44" rx="22" fill="#F4ECDF"/>
+  <rect x="120" y="324" width="176" height="44" rx="22" fill="#8291AB"/>
+</svg>
