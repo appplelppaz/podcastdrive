@@ -278,15 +278,16 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-// 読み上げの区切りをつないで表示する。日本語・中国語などどうしと句読点の前後には空白を入れない
-const WIDE = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\uAC00-\uD7AF]/;
-function joinForDisplay(texts) {
-  let out = "";
-  for (const t of texts) {
-    const prev = out.slice(-1), next = t[0] || "";
-    const tight = (WIDE.test(prev) && WIDE.test(next)) || /[、。，「『（]/.test(prev) || /[、。，」』）]/.test(next);
+// 読み上げの区切りをつないで表示する。言語が変わるところ（原語とその説明の間）には空白を入れて切れ目を見せる。
+// 同じ言語の続き（日本語・中国語どうし）、句読点の前、開き括弧の後には空白を入れない
+function joinForDisplay(parts) {
+  let out = "", lastLang = null;
+  for (const { lang, text } of parts) {
+    const prev = out.slice(-1), next = text[0] || "";
+    const tight = /[「『（]/.test(prev) || /[、。，」』）]/.test(next) || (lang === lastLang && /[^\x00-\x7F]/.test(prev + next));
     if (out && !tight) out += " ";
-    out += t;
+    out += text;
+    lastLang = lang;
   }
   return out;
 }
@@ -302,7 +303,7 @@ function renderPlayer() {
   }
   // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
   if (step && step.kind === "speech" && !step.cue) {
-    const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group).map((p) => p.text));
+    const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group));
     if (text !== spokenText) {
       spokenText = text;
       $("spoken").textContent = text;
