@@ -23,9 +23,10 @@
   --alarm: #FF8A70;   /* 削除・エラー */
   --rule: #22324F;
   --on-dial: #0D1830;
-  /* 画面の言葉（日本語）は端末の日本語書体。学ぶ言語の文（原文・題名）は Atkinson Hyperlegible */
-  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
-  --font-source: "Atkinson Hyperlegible", "Hiragino Sans", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  /* 画面の言葉（英語）と学ぶ言語の文は Atkinson Hyperlegible、日本語の訳・説明は端末の日本語書体 */
+  --font: "Atkinson Hyperlegible", "Hiragino Sans", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --font-source: var(--font);
+  --font-ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -38,6 +39,7 @@
 .subtitle:lang(zh), .hero-line:lang(zh), .sentences .o:lang(zh) {
   font-family: "Atkinson Hyperlegible", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", system-ui, sans-serif; }
 [hidden] { display: none !important; }
+:lang(ja) { font-family: var(--font-ja); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--night); color: var(--lamp); font: 17px/1.55 var(--font);
@@ -103,7 +105,8 @@ code { font-family: inherit; font-weight: 700; }
 .tab[aria-selected="true"] { background: var(--lamp); color: var(--night); }
 
 .card-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.card-open .name, .card-open .channel { display: block; }
+.card-open .name { display: block; }
+.card-open .channel { display: flex; flex-wrap: wrap; gap: 0 10px; }
 .track { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
 .track span { display: block; height: 100%; background: var(--dial); }
 

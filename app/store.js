@@ -25,7 +25,7 @@ function openDb() {
       resolve(req.result);
     };
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error("ほかのタブで開いているこのアプリを閉じてから、もう一度試してください"));
+    req.onblocked = () => reject(new Error("Close this app in other tabs and try again"));
   });
 }
 
@@ -37,7 +37,7 @@ async function tx(stores, mode, fn) {
     t.oncomplete = () => resolve(result && "result" in result ? result.result : result);
     t.onerror = () => reject(t.error);
     // 容量不足などで中止されたときも、待ち続けずに失敗を返す
-    t.onabort = () => reject(t.error || new Error("この端末に保存できませんでした（空き容量が足りないかもしれません）"));
+    t.onabort = () => reject(t.error || new Error("Could not save (storage may be full)"));
   });
 }
 
@@ -83,7 +83,7 @@ export async function ensureRefined(row, audio) {
 export async function getAudio(row) {
   if (row.audio instanceof Blob) return row.audio;
   const rec = await tx(AUDIO, "readonly", (a) => a.get(row.id));
-  if (!rec) throw new Error("このエピソードの音声が見つかりません。削除してから、もう一度追加してください");
+  if (!rec) throw new Error("Audio missing. Delete and add it again.");
   return new Blob([rec.data], { type: rec.type || "audio/mpeg" });
 }
 
@@ -120,7 +120,7 @@ export async function importFiles(fileList) {
   for (const f of fileList) {
     const kind = kindOf(f.name);
     if (!kind) {
-      if (!SIDE_FILE.test(f.name)) errors.push(`${f.name}: .mp3・.json・.ttml ではないので追加しませんでした`);
+      if (!SIDE_FILE.test(f.name)) errors.push(`${f.name}: skipped (not .mp3, .json or .ttml)`);
       continue;
     }
     const key = stemOf(f.name);
@@ -144,7 +144,7 @@ export async function importFiles(fileList) {
       } else if (g.json && g.audio) {
         imported.push(await importSources(g));
       } else if (g.json || g.ttml || g.fix) {
-        errors.push(`${label}: 同じ名前の音声ファイル（.mp3）も一緒に選んでください`);
+        errors.push(`${label}: add its .mp3 too`);
       } else {
         errors.push(`${label}: also select the JSON file with the same name`);
       }
@@ -152,7 +152,7 @@ export async function importFiles(fileList) {
       errors.push(`${label}: ${err.message}`);
     }
   }
-  if (!imported.length && !errors.length) errors.push("エピソードの .mp3 と .json（あれば .ttml も）を選んでください");
+  if (!imported.length && !errors.length) errors.push("Select .mp3 and .json (and .ttml)");
   return { imported, errors };
 }
 
@@ -228,11 +228,11 @@ async function importDoc(doc, findFile, onlyAudio = null) {
   }
   if (!audio) {
     const want = [sprite && sprite.file, doc.sources && doc.sources.audio && doc.sources.audio.file].filter(Boolean);
-    throw new Error("音声ファイルも一緒に選んでください: " + want.join(" または "));
+    throw new Error("Add the audio too: " + want.join(" or "));
   }
   const expected = mode === "sprite" ? sprite.sha256 : doc.sources.audio.sha256;
   if (expected && (await sha256(audio)) !== expected) {
-    throw new Error("この JSON を作ったときの音声と違うため追加しませんでした（文の位置がずれるため）");
+    throw new Error("This audio does not match the JSON, so it was not added");
   }
   const row = {
     id: doc.materialId,

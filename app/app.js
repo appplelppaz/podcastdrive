@@ -17,7 +17,7 @@ function renderSettings() {
     const k = el.dataset.key;
     if (el.classList.contains("stepper")) {
       if (!el.firstChild) {
-        el.innerHTML = `<button type="button" aria-label="減らす">−</button><span class="value"></span><button type="button" aria-label="増やす">+</button>`;
+        el.innerHTML = `<button type="button" aria-label="Decrease">−</button><span class="value"></span><button type="button" aria-label="Increase">+</button>`;
         const [minus, , plus] = el.children;
         minus.onclick = () => changeSetting(k, settings[k] - Number(el.dataset.step));
         plus.onclick = () => changeSetting(k, settings[k] + Number(el.dataset.step));
@@ -31,7 +31,7 @@ function renderSettings() {
   }
   for (const out of document.querySelectorAll("output[data-for]")) {
     const k = out.dataset.for;
-    out.textContent = k === "gapSeconds" ? settings[k].toFixed(1) + " 秒" : settings[k].toFixed(2) + "×";
+    out.textContent = k === "gapSeconds" ? settings[k].toFixed(1) + " s" : settings[k].toFixed(2) + "×";
   }
 }
 
@@ -65,27 +65,22 @@ $("exportSettings").onclick = () => {
 
 // ---------------------------------------------------------------- 教材一覧（教材ごとの再生履歴）
 
-const LANG_NAMES = { zh: "中国語", en: "英語", es: "スペイン語", fr: "フランス語" };
+const LANG_NAMES = { zh: "Chinese", en: "English", es: "Spanish", fr: "French" };
 const langOf = (row) => langBase((row.doc && row.doc.sourceLanguage) || "");
-const langName = (code) => LANG_NAMES[code] || (code ? code.toUpperCase() : "その他");
+const langName = (code) => LANG_NAMES[code] || (code ? code.toUpperCase() : "Other");
 
-function when(ts) {
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-// どこまで聞いたかを文で（数字だけの「12 / 51」にしない）
+// どこまで聞いたか（短く）
 function historyText(row, pos) {
-  if (!pos) return `全${row.segments}文。まだ聞いていません`;
-  if (pos.finished) return `全${row.segments}文を最後まで聞きました（${when(pos.savedAt)}）`;
-  return `全${row.segments}文中 ${pos.segIndex + 1}文目で止めました（${when(pos.savedAt)}）`;
+  if (!pos) return `${row.segments} sentences`;
+  if (pos.finished) return "Finished";
+  return `Sentence ${pos.segIndex + 1} of ${row.segments}`;
 }
 const progressOf = (row, pos) => (!pos ? 0 : pos.finished ? 1 : pos.segIndex / Math.max(1, row.segments));
 
 function notesOf(row) {
   const notes = [];
-  if (row.mode === "direct" && row.hasTtml === false) notes.push("単語ごとの時刻がないため、字幕は文ごとに表示します。");
-  if (row.translationMismatch) notes.push("訳が音声とずれている可能性があります。.fix.json があれば一緒に追加してください。");
+  if (row.mode === "direct" && row.hasTtml === false) notes.push("No word timing");
+  if (row.translationMismatch) notes.push("Translations may not match the audio");
   return notes;
 }
 
@@ -103,7 +98,7 @@ async function renderLibrary() {
   tabs.hidden = langs.length < 2;
   tabs.innerHTML = "";
   for (const code of ["", ...langs]) {
-    const b = Object.assign(document.createElement("button"), { type: "button", className: "tab", textContent: code ? langName(code) : "すべて" });
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "tab", textContent: code ? langName(code) : "All" });
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", String(code === langFilter));
     b.onclick = () => {
@@ -121,10 +116,11 @@ async function renderLibrary() {
     const resumable = pos && !pos.finished && pos.segIndex > 0;
     const li = document.createElement("li");
     li.dataset.id = row.id;
-    li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"></span></button>` +
+    li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"><span class="lang-tag"></span><span class="ch"></span></span></button>` +
       `<div class="track" aria-hidden="true"><span></span></div><div class="meta"></div><div class="actions"></div>`;
     li.querySelector(".name").textContent = row.title;
-    li.querySelector(".channel").textContent = [langs.length > 1 && !langFilter ? langName(langOf(row)) : "", row.channel].filter(Boolean).join("　");
+    li.querySelector(".lang-tag").textContent = langs.length > 1 && !langFilter ? langName(langOf(row)) : "";
+    li.querySelector(".ch").textContent = row.channel || "";
     li.querySelector(".card-open").onclick = () => openEpisode(row.id);
     li.querySelector(".track span").style.width = (progressOf(row, pos) * 100).toFixed(1) + "%";
     li.querySelector(".meta").textContent = historyText(row, pos);
@@ -136,12 +132,12 @@ async function renderLibrary() {
       actions.append(b);
     };
     if (resumable) {
-      add("続きから", "start resume", () => open(row.id, "resume"));
-      add("最初から", "outline from-start", () => open(row.id, "start"));
+      add("Continue", "start resume", () => open(row.id, "resume"));
+      add("Restart", "outline from-start", () => open(row.id, "start"));
     } else {
-      add(pos && pos.finished ? "もう一度" : "再生", "start", () => open(row.id, "start"));
+      add("Play", "start", () => open(row.id, "start"));
     }
-    add("文を選ぶ", "outline pick", () => openEpisode(row.id));
+    add("Sentences", "outline pick", () => openEpisode(row.id));
     ul.append(li);
   }
 }
@@ -189,8 +185,8 @@ function openEpisode(id) {
     b.onclick = fn;
     actions.append(b);
   };
-  if (at > 0) add("続きから", "start resume", () => open(id, "resume"));
-  add(at > 0 ? "最初から" : "最初から再生", at > 0 ? "outline from-start" : "start", () => open(id, "start"));
+  if (at > 0) add("Continue", "start resume", () => open(id, "resume"));
+  add(at > 0 ? "Restart" : "Play", at > 0 ? "outline from-start" : "start", () => open(id, "start"));
   const ol = $("sentences");
   ol.innerHTML = "";
   const lang = row.doc.sourceLanguage || "";
@@ -217,7 +213,7 @@ function openEpisode(id) {
 
 $("epDelete").onclick = async () => {
   const row = rowsById.get(episodeId);
-  if (!row || !confirm(`「${row.title}」をこの端末から削除しますか？`)) return;
+  if (!row || !confirm(`Delete “${row.title}”?`)) return;
   await store.deleteMaterial(row.id);
   show("home");
 };
@@ -228,11 +224,10 @@ $("settingsBack").onclick = () => show("home");
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
   status.className = "status";
-  status.textContent = "追加しています。文の区切りを音声に合わせるので、数秒かかります…";
+  status.textContent = "Adding…";
   try {
     const { imported, errors } = await store.importFiles(e.target.files);
-    const lines = imported.map((r) => `「${r.title}」を追加しました。` +
-      (r.translationMismatch ? "訳が音声とずれている可能性があります。.fix.json があれば一緒に追加してください。" : ""));
+    const lines = imported.map((r) => `Added “${r.title}”` + (r.translationMismatch ? " (translations may not match)" : ""));
     status.textContent = [...lines, ...errors].join("\n");
     if (errors.length || imported.some((r) => r.translationMismatch)) status.className = "status error";
   } catch (err) {
@@ -285,11 +280,11 @@ function open(id, how, index = 0) {
   unlockAudio();
   current = row;
   store.setLastMaterialId(id);
-  setStatus("音声を読み込んでいます…");
+  setStatus("Loading…");
   show("player");
   store.getAudio(row).then(async (audio) => {
     if (store.needsRefine(row)) {
-      setStatus("文の区切りを音声に合わせています（初回だけ）…");
+      setStatus("Aligning…");
       await store.ensureRefined(row, audio);
     }
     // 無音がまだ鳴っていれば止め終えてから始める（その pause を中断と取り違えないように）
@@ -317,13 +312,13 @@ function start(row, audio, how, index = 0) {
   engine.addEventListener("position", () => { savePos(); updateMediaSession(); });
   engine.addEventListener("finished", () => {
     store.savePosition(current.id, { segIndex: 0, segId: row.doc.segments[0].id, total: row.doc.segments.length, finished: true });
-    setStatus("最後まで聞きました");
+    setStatus("Finished");
   });
-  engine.addEventListener("interrupted", () => { savePos(); setStatus("途中で止まりました。タップするとここから続けます"); });
+  engine.addEventListener("interrupted", () => { savePos(); setStatus("Stopped. Tap to resume."); });
   engine.addEventListener("error", (e) => setStatus(e.detail.message, true));
   $("subtitle").lang = row.doc.sourceLanguage || "en";
   $("spoken").lang = row.doc.targetLanguage || "ja";
-  setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "画面が消えると再生が止まることがあります");
+  setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "Screen lock may stop playback");
   renderedSeg = null;
   savePos();
   setupMediaSession();
@@ -467,10 +462,10 @@ function flash(text) {
 }
 
 const actions = {
-  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ 一時停止" : "▶ 再生"); },
-  next() { if (!engine) return; engine.next(); flash("次の文 ›"); },
-  previous() { if (!engine) return; engine.previous(); flash("‹ 前の文"); },
-  restart() { if (!engine) return; engine.restart(); flash("↺ 最初から"); },
+  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ Paused" : "▶ Playing"); },
+  next() { if (!engine) return; engine.next(); flash("Next ›"); },
+  previous() { if (!engine) return; engine.previous(); flash("‹ Previous"); },
+  restart() { if (!engine) return; engine.restart(); flash("↺ Restart"); },
 };
 
 $("back").onclick = () => {
@@ -545,8 +540,8 @@ function updateMediaSession() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `${s.segIndex + 1}/${s.total} ${current.title}`,
-      artist: current.channel || "聞き流し",
-      album: "聞き流し",
+      artist: current.channel || "Listening",
+      album: "Listening",
       artwork: [{ src: "icons/icon-512.png", sizes: "512x512", type: "image/png" }],
     });
   } catch { /* 未対応 */ }
@@ -568,9 +563,9 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 const params = new URLSearchParams(location.search);
 if (params.get("import")) {
   // 例: ?import=materials/xxx.listening.json （同じサーバーに置いた教材を取り込む）
-  $("importStatus").textContent = "追加しています…";
+  $("importStatus").textContent = "Adding…";
   store.importFromUrl(params.get("import"))
-    .then((row) => { $("importStatus").textContent = `「${row.title}」を追加しました。`; renderLibrary(); })
+    .then((row) => { $("importStatus").textContent = `Added “${row.title}”`; renderLibrary(); })
     .catch((err) => { $("importStatus").className = "status error"; $("importStatus").textContent = err.message; });
 }
 show("home");

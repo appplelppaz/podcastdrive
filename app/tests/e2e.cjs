@@ -63,7 +63,7 @@ async function openMaterial(page, title, button) {
   await page.setInputFiles("#fileInput", ["a.json", "a.ttml", "a.mp3", "b.json", "b.ttml", "b.mp3"].map(ascii));
   await waitFor(page, () => document.querySelectorAll("#library li").length === 2);
   const status = await page.textContent("#importStatus");
-  check("既存ファイルのまま2回分をまとめて取り込み", (status.match(/を追加しました/g) || []).length === 2, status.replace(/\n/g, " / "));
+  check("既存ファイルのまま2回分をまとめて取り込み", (status.match(/Added/g) || []).length === 2, status.replace(/\n/g, " / "));
   const titleA = "Morning market check", titleB = "Weather and travel";
   check("起動エラーの表示なし", await page.evaluate(() => window.__appStarted && document.getElementById("appError").hidden));
   // iPhone は種類の分からないファイル（Drive の .ttml は application/octet-stream）を選べなくなるので、種類で絞らない
@@ -168,11 +168,11 @@ async function openMaterial(page, title, button) {
   await page.evaluate(() => window.__engine.goto(1));
   await waitFor(page, () => window.__engine.log.at(-1).seg === "s002");
   await page.click("#back");
-  await waitFor(page, (t) => [...document.querySelectorAll("#library li")].some((li) => li.textContent.includes(t) && li.textContent.includes("2文目で止めました")), titleB);
+  await waitFor(page, (t) => [...document.querySelectorAll("#library li")].some((li) => li.textContent.includes(t) && li.textContent.includes("Sentence 2 of 3")), titleB);
   const metaA = await page.locator("#library li", { hasText: titleA }).locator(".meta").textContent();
   const metaB = await page.locator("#library li", { hasText: titleB }).locator(".meta").textContent();
-  check("教材ごとに前回の位置を表示（A）", /全4文中 3文目で止めました/.test(metaA), metaA);
-  check("教材ごとに前回の位置を表示（B）", /全3文中 2文目で止めました/.test(metaB), metaB);
+  check("教材ごとに前回の位置を表示（A）", /Sentence 3 of 4/.test(metaA), metaA);
+  check("教材ごとに前回の位置を表示（B）", /Sentence 2 of 3/.test(metaB), metaB);
   // ホームの「続きから」: 最後に聞いた B の、止めた文の原文をそのまま出す
   const hero = await page.evaluate(() => ({ shown: !document.getElementById("hero").hidden, line: document.getElementById("heroLine").textContent }));
   check("ホームの続きからに止めた文を表示", hero.shown && hero.line.length > 0, hero.line);
@@ -209,12 +209,12 @@ async function openMaterial(page, title, button) {
 
   // ---- 以前の方式（準備済みの .listening.json ＋ .listening.m4a）も読める
   await page.goto(BASE + "?import=" + encodeURIComponent("materials/" + PREPARED + ".listening.json"));
-  await waitFor(page, () => /を追加しました/.test(document.getElementById("importStatus").textContent));
+  await waitFor(page, () => /Added/.test(document.getElementById("importStatus").textContent));
   check("準備済みの教材も取り込める", (await page.locator("#library li").count()) === 3);
 
   // ---- 組になっていないファイルは理由を表示
   await page.setInputFiles("#fileInput", [ascii("a.json")]);
-  await waitFor(page, () => /音声ファイル/.test(document.getElementById("importStatus").textContent));
+  await waitFor(page, () => /add its \.mp3/.test(document.getElementById("importStatus").textContent));
   check("音声がないときは理由を表示", true, await page.textContent("#importStatus"));
 
   // ---- Drive からの .ttml（種類が application/octet-stream）も字幕として使う。関係ないファイルは理由を表示
@@ -225,11 +225,11 @@ async function openMaterial(page, title, button) {
     { name: "a.ttml", mimeType: "application/octet-stream", buffer: buf("a.ttml") },
     { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("x") },
   ]);
-  await waitFor(page, () => /を追加しました/.test(document.getElementById("importStatus").textContent));
+  await waitFor(page, () => /Added/.test(document.getElementById("importStatus").textContent));
   const st = await page.textContent("#importStatus");
   const metaA2 = await page.locator("#library li", { hasText: titleA }).first().textContent(); // 新しいものが先頭
-  check("octet-stream の .ttml も取り込む", /を追加しました/.test(st) && !/単語ごとの時刻がない/.test(metaA2), metaA2);
-  check("対象外のファイルは理由を表示", /notes\.txt: .mp3・.json・.ttml ではない/.test(st), st.replace(/\n/g, " / "));
+  check("octet-stream の .ttml も取り込む", /Added/.test(st) && !/No word timing/.test(metaA2), metaA2);
+  check("対象外のファイルは理由を表示", /notes\.txt: skipped/.test(st), st.replace(/\n/g, " / "));
 
   // ---- 以前の版で音声を Blob として行に保存した教材も再生できる
   await page.evaluate(() => new Promise((resolve, reject) => {
@@ -271,7 +271,7 @@ async function openMaterial(page, title, button) {
     performance.now() - window.__engine.stepStartedAt > 1600 && !document.getElementById("audio").paused);
   await page.evaluate(() => document.getElementById("audio").pause()); // 再生中の本当の中断（電話など）
   await waitFor(page, () => !window.__engine.playing);
-  check("再生の途中の停止は中断として止まる", /途中で止まりました/.test(await page.textContent("#playerStatus")));
+  check("再生の途中の停止は中断として止まる", /Stopped/.test(await page.textContent("#playerStatus")));
   await page.evaluate(() => window.__engine.play());
   await waitFor(page, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling());
   await page.evaluate(() => window.__systemPause());

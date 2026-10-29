@@ -27,15 +27,19 @@ frontend-design スキル（`.claude/skills/frontend-design/SKILL.md`）の手�
 
 ## 書体
 
-- Atkinson Hyperlegible（Braille Institute が読みやすさのために作った書体。`app/fonts/`、SIL OFL）を原文のラテン文字と画面の文字に使う。
+- Atkinson Hyperlegible（Braille Institute が読みやすさのために作った書体。`app/fonts/`、SIL OFL）を画面の英語と原文に使う。
+  日本語の訳・説明（`lang="ja"`）は端末の日本語書体。
   I・l・1、O・0 の見分けがつき、一瞬で読む用途に合う。1つの書体だけを使い、太さ（400・700）で役割を分ける。
 - 日本語は Hiragino Sans、中国語は PingFang SC / Hiragino Sans GB（端末の書体）。
 - 大きさ: 再生画面の原文 30〜50px（画面に合わせる）、訳・説明 22〜36px。一覧の見出し 26px、本文 17px、補足 15px。
 
 ## 画面の構成（Language Drill と同じ水準を目指した2版目）
 
-Language Drill の良いところ（言語ごとに選べる、好きな文から始められる、設定が別画面、日本語の画面）を、
-この方向（夜のメーター）に合わせて取り入れる。画面の言葉は日本語にする。
+Language Drill の良いところ（言語ごとに選べる、好きな文から始められる、設定が別画面）を、
+この方向（夜のメーター）に合わせて取り入れる。
+
+**画面の言葉は英語で、できるだけ短く**（持ち主の決まり。`CLAUDE.md`）: ボタンは Continue / Restart / Sentences / Play、
+進み具合は「Sentence 12 of 51」、設定は Original / Read aloud / Device。日本語は教材の訳・説明だけ。
 
 ```
 ホーム                         エピソード                   再生（変えない）
@@ -60,7 +64,7 @@ Language Drill の良いところ（言語ごとに選べる、好きな文か�
 - **言語の切り替え**: 中国語・英語・スペイン語・フランス語のうち、取り込んだ言語だけを横に並べて選ぶ。
 - **エピソード画面**: 文の一覧（時刻・原文・訳）から好きな文を選んで再生。止めた文は琥珀色の線で示す。削除はここに置く。
 - **設定は別の画面**（ホーム右上の歯車）。
-- 左揃え。数字は「12 / 51」ではなく「51文中12文目まで」のように文で書く。
+- 左揃え。進み具合は「Sentence 12 of 51」。
 
 ## 原則
 
