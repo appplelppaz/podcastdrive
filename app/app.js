@@ -7,7 +7,6 @@ let settings = clampSettings(store.loadSettings(DEFAULTS));
 let engine = null;
 let current = null; // 開いている教材の行
 let audioUrl = null;
-let lastLabel = "";
 let rowsById = new Map(); // 一覧の教材（音声は参照だけ。開くときに待たずに再生を始めるため）
 
 // ---------------------------------------------------------------- 設定
@@ -172,7 +171,6 @@ function open(id, how) {
   unlockAudio();
   current = row;
   store.setLastMaterialId(id);
-  $("title").textContent = row.title;
   setStatus("Loading audio…");
   show("player");
   store.getAudio(row).then(async (audio) => {
@@ -207,12 +205,10 @@ function start(row, audio, how) {
   });
   engine.addEventListener("interrupted", () => { savePos(); setStatus("Interrupted — tap to resume from here"); });
   engine.addEventListener("error", (e) => setStatus(e.detail.message, true));
-  $("title").textContent = row.title;
   $("subtitle").lang = row.doc.sourceLanguage || "en";
   $("spoken").lang = row.doc.targetLanguage || "ja";
-  setStatus(row.mode === "sprite" ? "" : settings.keepAwake ? "The screen stays on while playing" : "Playback may stop when the screen locks");
+  setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "Playback may stop when the screen locks");
   renderedSeg = null;
-  lastLabel = "";
   savePos();
   setupMediaSession();
   renderPlayer();
@@ -285,13 +281,10 @@ function renderPlayer() {
   const s = engine.snapshot();
   const step = engine.step;
   renderSubtitle(s.segment);
-  $("counter").textContent = `${s.segIndex + 1} / ${s.total}`;
-  if (s.label || !s.playing) lastLabel = s.playing ? s.label : "Paused";
   // 読み上げ中（<audio> は止めている）も、ロック画面には再生中と伝える
   if ("mediaSession" in navigator) {
     try { navigator.mediaSession.playbackState = s.playing ? "playing" : "paused"; } catch { /* 未対応 */ }
   }
-  $("stepLabel").textContent = lastLabel;
   // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
   if (step && step.kind === "speech" && !step.cue) {
     const text = s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group).map((p) => p.text).join(" ");
@@ -303,11 +296,7 @@ function renderPlayer() {
     spokenText = "";
     $("spoken").textContent = "";
   }
-  $("progressBar").style.width = ((s.segIndex + 1) / s.total * 100).toFixed(1) + "%";
   $("player").classList.toggle("paused", !s.playing);
-  const pp = $("playPause");
-  pp.textContent = s.playing ? "⏸" : "▶";
-  pp.setAttribute("aria-label", s.playing ? "Pause" : "Play");
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s.playing ? "playing" : "paused";
   updateWakeLock();
 }
@@ -333,7 +322,7 @@ function show(name) {
   if (name === "setup") { renderSettings(); renderLibrary(); }
 }
 
-// ---------------------------------------------------------------- 操作（ボタン・ジェスチャー・キーボード）
+// ---------------------------------------------------------------- 操作（ジェスチャー・キーボード）
 
 let flashTimer = null;
 function flash(text) {
@@ -352,10 +341,6 @@ const actions = {
   restart() { if (!engine) return; engine.restart(); flash("↺ Restart"); },
 };
 
-$("playPause").onclick = actions.toggle;
-$("next").onclick = actions.next;
-$("prev").onclick = actions.previous;
-$("restart").onclick = actions.restart;
 $("back").onclick = () => {
   if (engine) { engine.pause(); savePos(); }
   show("setup");

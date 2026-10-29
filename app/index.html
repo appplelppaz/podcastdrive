@@ -120,31 +120,20 @@
     </div>
   </section>
   <p class="hint center">Plays automatically to the end. Translations and notes are read with your device's voice; keep the screen on for reliable playback.</p>
+  <p class="hint center">While playing: tap to pause / resume · swipe ← next · swipe → previous · hold to restart the sentence.</p>
 </main>
 
 <main id="player" class="screen player" hidden>
-  <header class="bar">
-    <button id="back" class="link" type="button">‹ Library</button>
-    <span id="counter" class="counter">1 / 1</span>
-  </header>
+  <button id="back" class="back" type="button" aria-label="Back to library">‹</button>
 
   <section id="stage" class="stage" tabindex="0"
     aria-label="Tap to pause or resume. Swipe left for the next sentence, right for the previous one. Hold to restart the sentence.">
-    <p id="stepLabel" class="step"></p>
+    <p id="pausedMark" class="paused-mark" aria-hidden="true">Ⅱ</p>
     <p id="subtitle" class="subtitle" lang="en"></p>
     <p id="spoken" class="spoken" lang="ja"></p>
     <div id="flash" class="flash" aria-hidden="true"></div>
   </section>
 
-  <div class="progress"><div id="progressBar"></div></div>
-  <p id="title" class="title"></p>
-  <p class="hint center gestures">Tap: pause / resume · Swipe ←: next · Swipe →: previous · Hold: restart</p>
-  <nav class="controls" aria-label="Playback">
-    <button id="prev" type="button" aria-label="Previous sentence">⏮</button>
-    <button id="playPause" type="button" aria-label="Play">▶</button>
-    <button id="next" type="button" aria-label="Next sentence">⏭</button>
-    <button id="restart" type="button" aria-label="Restart sentence">↺</button>
-  </nav>
   <p id="playerStatus" class="status center" role="status"></p>
   <audio id="audio" playsinline webkit-playsinline preload="auto"></audio>
 </main>
