@@ -1,6 +1,7 @@
 """
 Apple Podcasts でダウンロードしたエピソードの音声と字幕（TTML）を、
-~/Desktop/Public/PodcastsChatGPT に集める（ChatGPT に JSON を作ってもらうため）。
+Dropbox の PodcastsChatGPT フォルダに集める（Dropbox のアプリがアップロードし、
+別の場所の Windows パソコンの ChatGPT が JSON を作るため）。
 
 - 対象: このアプリを実行した日（今日）に Mac にダウンロード・保存された音声と字幕だけ（配信日ではなく、ファイルの日付）。
   前の日にダウンロード・保存されたものは集めない。音声と字幕はそれぞれの日付で判断する。
@@ -9,6 +10,10 @@ Apple Podcasts でダウンロードしたエピソードの音声と字幕（TT
 - 一度集めた回は覚えておき、PodcastsChatGPT から移したり消したりしても、もう一度はコピーしない。
 - 字幕（TTML）がまだない回は音声だけをコピーし、字幕が保存された日に実行すれば字幕を足す。
 - 初回に、デスクトップへ PodcastsChatGPT フォルダのショートカットを作る。
+- 以前の版の集め先（~/Desktop/Public/PodcastsChatGPT など）にあるファイルと記録は Dropbox へ移し、
+  以前の版の「Dropbox へ自動コピー」の設定（launchd）は止める。
+
+Mac に Dropbox のアプリを入れてログインしておく（なければ案内する）。
 
 ターミナルに「フルディスクアクセス」が必要（Apple Podcasts のデータを読むため）。なければ設定の画面を開いて案内する。
 """
@@ -32,10 +37,28 @@ GROUP = Path(os.environ.get("PODCASTS_GROUP")
 DB_PATH = GROUP / "Documents/MTLibrary.sqlite"
 TTML_ROOT = GROUP / "Library/Cache/Assets/TTML"
 PUBLIC = Path(os.environ.get("PUBLIC_DIR") or HOME / "Desktop/Public")
-DEST = PUBLIC / FOLDER_NAME                     # ~/Desktop/Public/PodcastsChatGPT
-OLD_DEST = PUBLIC / "Podcasts" / FOLDER_NAME    # 以前の版の集め先（あれば中身を移す）
-STATE = DEST / ".collected.json"
+OLD_DESTS = [PUBLIC / FOLDER_NAME, PUBLIC / "Podcasts" / FOLDER_NAME]  # 以前の版の集め先（あれば中身を移す）
 DESKTOP = Path(os.environ.get("DESKTOP_DIR") or HOME / "Desktop")
+OLD_AGENT = HOME / "Library/LaunchAgents/com.podcastdrive.podcastschatgpt.dropbox.plist"
+
+
+def find_dropbox():
+    """Dropbox のアプリが Mac に作るフォルダ。"""
+    if os.environ.get("DROPBOX_DIR"):
+        return Path(os.environ["DROPBOX_DIR"])
+    cloud = HOME / "Library/CloudStorage"
+    candidates = [cloud / "Dropbox", cloud / "Dropbox-Personal"]
+    candidates += sorted(cloud.glob("Dropbox*")) if cloud.is_dir() else []
+    candidates.append(HOME / "Dropbox")
+    for d in candidates:
+        if d.is_dir():
+            return d
+    return None
+
+
+DROPBOX = find_dropbox()
+DEST = (DROPBOX / FOLDER_NAME) if DROPBOX else None   # ~/Library/CloudStorage/Dropbox/PodcastsChatGPT
+STATE = (DEST / ".collected.json") if DEST else None
 CORE_DATA_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 FDA_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
@@ -63,6 +86,13 @@ def asset_path(url):
         if rebased.exists():
             return rebased
     return p
+
+
+def copy_file(src, dst):
+    """途中のファイルを見せないよう、「.」で始まる名前でコピーしてから名前を変える（Dropbox への自動コピーが拾わない）。"""
+    tmp = dst.with_name("." + dst.name + ".copying")
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
 
 
 def downloaded_at(path):
@@ -160,27 +190,44 @@ def save_state(state):
     os.replace(tmp, STATE)
 
 
-def move_old_folder():
-    """以前の版の集め先（Podcasts の中）にあるファイルと記録を、新しい集め先へ移す。"""
-    if not OLD_DEST.is_dir() or OLD_DEST.is_symlink():
-        return 0
+def move_old_folders():
+    """以前の版の集め先にあるファイルと記録を、Dropbox の集め先へ移す。"""
     moved = 0
-    for f in sorted(OLD_DEST.iterdir()):
-        target = DEST / f.name
-        if not target.exists():
+    for old in OLD_DESTS:
+        if not old.is_dir() or old.is_symlink():
+            continue
+        for f in sorted(old.iterdir()):
+            target = DEST / f.name
+            if f.name == ".DS_Store" or target.exists():
+                continue
             shutil.move(str(f), str(target))
             moved += 1
-    try:
-        OLD_DEST.rmdir()  # 空になったときだけ消える
-    except OSError:
-        pass
+        try:
+            (old / ".DS_Store").unlink()
+        except OSError:
+            pass
+        try:
+            old.rmdir()  # 空になったときだけ消える
+        except OSError:
+            pass
     return moved
+
+
+def stop_old_sync():
+    """以前の版の「Dropbox へ自動コピー」（launchd）を止める。今は Dropbox に直接集めるので要らない。"""
+    if not OLD_AGENT.exists():
+        return False
+    if sys.platform == "darwin":
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{OLD_AGENT.stem}"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    OLD_AGENT.unlink()
+    return True
 
 
 def make_desktop_shortcut():
     """デスクトップに PodcastsChatGPT フォルダへのショートカット（エイリアスと同じように開ける）を作る。"""
     link = DESKTOP / FOLDER_NAME
-    if link.is_symlink() and os.readlink(link) == str(OLD_DEST):
+    if link.is_symlink() and os.readlink(link) != str(DEST):
         link.unlink()  # 以前の集め先を指すショートカットは作り直す
     if link.is_symlink() or link.exists():
         return False
@@ -203,10 +250,19 @@ def needs_full_disk_access(err):
 
 
 def main():
+    if not DEST:
+        print("Dropbox のフォルダが見つかりません。")
+        print("Dropbox のアプリ（https://www.dropbox.com/install）を入れてログインし、")
+        print("Finder のサイドバーに Dropbox が出てから、もう一度このアプリを開いてください。")
+        if sys.platform == "darwin" and not os.environ.get("NO_OPEN"):
+            subprocess.run(["open", "https://www.dropbox.com/install"])
+        return 1
     DEST.mkdir(parents=True, exist_ok=True)
-    moved = move_old_folder()
+    moved = move_old_folders()
     if moved:
-        print(f"以前の集め先（{OLD_DEST}）から {moved} 個のファイルを移しました。")
+        print(f"以前の集め先から Dropbox へ {moved} 個のファイルを移しました。")
+    if stop_old_sync():
+        print("以前の「Dropbox へ自動コピー」の設定を止めました（今は Dropbox に直接集めます）。")
     if make_desktop_shortcut():
         print(f"デスクトップに {FOLDER_NAME} のショートカットを作りました。")
     if not DB_PATH.exists():
@@ -258,13 +314,13 @@ def main():
         if take_audio:
             dst = DEST / (base + (ep["audio"].suffix or ".mp3"))
             if not dst.exists():
-                shutil.copy2(ep["audio"], dst)
+                copy_file(ep["audio"], dst)
             rec["audio"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_audio.append(base)
         if take_ttml:
             dst = DEST / (base + ".ttml")
             if not dst.exists():
-                shutil.copy2(ttml, dst)
+                copy_file(ttml, dst)
             rec["ttml"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             new_ttml.append(base)
         elif not ttml:
@@ -273,6 +329,7 @@ def main():
         save_state(state)
 
     print(f"\n集める先: {DEST}")
+    print("（Dropbox のアプリが自動でアップロードします）")
     print(f"対象: 今日（{today:%Y-%m-%d}）ダウンロード・保存された音声と字幕だけ\n")
     if new_audio:
         print(f"音声をコピー（{len(new_audio)}件）:")

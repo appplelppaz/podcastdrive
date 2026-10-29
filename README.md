@@ -109,11 +109,13 @@ Claude のスキルで、Language Drill とこのアプリの両方で使える 
 
 `PodcastsChatGPTに集める.command`（`python3 mac/build_command.py` で作る）をデスクトップに置いてダブルクリックすると、
 Apple Podcasts で、実行した日（今日）にダウンロード・保存された音声と字幕（TTML）だけを
-`~/Desktop/Public/PodcastsChatGPT` にコピーします（元のファイルはそのまま）。
+Dropbox の `PodcastsChatGPT` フォルダ（`~/Library/CloudStorage/Dropbox/PodcastsChatGPT`）にコピーします（元のファイルはそのまま）。
+アップロードは Mac の Dropbox アプリがするので、別の場所の Windows パソコンでも Dropbox から受け取れます。
 初回にデスクトップへ `PodcastsChatGPT` フォルダのショートカットを作ります。
 一度集めた回は `.collected.json` に記録し、集めたファイルを移した後も二度はコピーしません。
 前の日のものは集めません（音声と字幕はそれぞれの日付で判断）。
-ターミナルにフルディスクアクセスが必要です。確認: `python3 -m unittest mac/test_collect.py`
+以前の集め先（`~/Desktop/Public/PodcastsChatGPT`）にあるファイルと記録は Dropbox へ移します。
+Mac に Dropbox のアプリが要り、ターミナルにフルディスクアクセスが要ります。確認: `python3 -m unittest mac/test_collect.py`
 
 ## アプリの置き場所
 

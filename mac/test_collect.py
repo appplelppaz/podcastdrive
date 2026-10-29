@@ -24,9 +24,13 @@ class CollectTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         t = self.tmp.name
         self.group = os.path.join(t, "group")
-        self.public = os.path.join(t, "Desktop", "Public")
-        self.lib = os.path.join(self.public, "PodcastsChatGPT")
-        self.desktop = os.path.join(t, "Desktop")
+        self.home = os.path.join(t, "home")
+        self.desktop = os.path.join(self.home, "Desktop")
+        self.public = os.path.join(self.desktop, "Public")
+        self.dropbox = os.path.join(self.home, "Library", "CloudStorage", "Dropbox")
+        self.lib = os.path.join(self.dropbox, "PodcastsChatGPT")
+        os.makedirs(self.dropbox)
+        os.makedirs(self.desktop)
         os.makedirs(os.path.join(self.group, "Documents"))
         os.makedirs(os.path.join(self.group, "Library", "Cache", "Assets", "TTML"))
         os.makedirs(os.path.join(self.group, "Library", "Cache", "Audio"))
@@ -63,10 +67,10 @@ class CollectTest(unittest.TestCase):
             ts = datetime.strptime(saved, "%Y-%m-%d %H:%M").timestamp()
             os.utime(path, (ts, ts))
 
-    def run_app(self):
-        env = dict(os.environ, PODCASTS_GROUP=self.group, PUBLIC_DIR=self.public, DESKTOP_DIR=self.desktop, NO_OPEN="1")
+    def run_app(self, code=0):
+        env = dict(os.environ, HOME=self.home, PODCASTS_GROUP=self.group, NO_OPEN="1")
         r = subprocess.run([sys.executable, SCRIPT], capture_output=True, text=True, env=env)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
         return r.stdout
 
     def files(self):
@@ -79,6 +83,7 @@ class CollectTest(unittest.TestCase):
         self.add(3, 2, "第95集 汉字/拼音?", "2026-10-25", TODAY + " 00:02", ttml=False)  # 字幕がまだない
         self.add(4, 1, "Old audio, old transcript today?", "2026-10-21", YESTERDAY + " 10:00", ttml=False)
         out = self.run_app()
+        self.assertEqual(sorted(os.listdir(self.lib)), [".collected.json"] + self.files())  # 途中の名前が残らない
         self.assertEqual(self.files(), [
             "[Business Daily] Iran’s economy Counting the cost of war (20260101).mp3",
             "[Business Daily] Iran’s economy Counting the cost of war (20260101).ttml",
@@ -111,30 +116,42 @@ class CollectTest(unittest.TestCase):
         self.assertIn("新しくダウンロードされた回はありませんでした", self.run_app())
         self.assertEqual(self.files(), [])
 
-    def test_moves_old_folder(self):
-        old = os.path.join(self.public, "Podcasts", "PodcastsChatGPT")
+    def test_moves_old_folders_to_dropbox(self):
+        old = os.path.join(self.public, "PodcastsChatGPT")
+        older = os.path.join(self.public, "Podcasts", "PodcastsChatGPT")
         os.makedirs(old)
+        os.makedirs(older)
         with open(os.path.join(old, "[A] B (20261028).mp3"), "w") as f:
             f.write("x")
+        with open(os.path.join(old, ".DS_Store"), "w") as f:
+            f.write("x")
         with open(os.path.join(old, ".collected.json"), "w") as f:
-            json.dump({"since": "2026-10-28", "episodes": {"uuid-9": {"name": "[A] B (20261028)", "audio": "x", "ttml": "x"}}}, f)
-        os.makedirs(self.desktop, exist_ok=True)
+            json.dump({"episodes": {"uuid-9": {"name": "[A] B (20261028)", "audio": "x", "ttml": "x"}}}, f)
+        with open(os.path.join(older, "[C] D (20261027).ttml"), "w") as f:
+            f.write("x")
         os.symlink(old, os.path.join(self.desktop, "PodcastsChatGPT"))  # 以前の版のショートカット
+        agent = os.path.join(self.home, "Library", "LaunchAgents", "com.podcastdrive.podcastschatgpt.dropbox.plist")
+        os.makedirs(os.path.dirname(agent))
+        with open(agent, "w") as f:
+            f.write("<plist/>")  # 以前の版の「Dropbox へ自動コピー」
         out = self.run_app()
-        self.assertIn("2 個のファイルを移しました", out)
-        self.assertFalse(os.path.exists(old))
-        self.assertEqual(self.files(), ["[A] B (20261028).mp3"])
+        self.assertIn("Dropbox へ 3 個のファイルを移しました", out)
+        self.assertIn("自動コピー」の設定を止めました", out)
+        self.assertFalse(os.path.exists(old) or os.path.exists(older) or os.path.exists(agent))
+        self.assertEqual(self.files(), ["[A] B (20261028).mp3", "[C] D (20261027).ttml"])
         with open(os.path.join(self.lib, ".collected.json"), encoding="utf-8") as f:
             self.assertIn("uuid-9", json.load(f)["episodes"])
-        link = os.path.join(self.desktop, "PodcastsChatGPT")
-        self.assertEqual(os.readlink(link), self.lib)
+        self.assertEqual(os.readlink(os.path.join(self.desktop, "PodcastsChatGPT")), self.lib)
+
+    def test_missing_dropbox(self):
+        os.rmdir(self.dropbox)
+        out = self.run_app(1)
+        self.assertIn("Dropbox のフォルダが見つかりません", out)
+        self.assertFalse(os.path.exists(os.path.join(self.desktop, "PodcastsChatGPT")))
 
     def test_missing_library(self):
         os.remove(os.path.join(self.group, "Documents", "MTLibrary.sqlite"))
-        env = dict(os.environ, PODCASTS_GROUP=self.group, PUBLIC_DIR=self.public, DESKTOP_DIR=self.desktop, NO_OPEN="1")
-        r = subprocess.run([sys.executable, SCRIPT], capture_output=True, text=True, env=env)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("Apple Podcasts のライブラリが見つかりません", r.stdout)
+        self.assertIn("Apple Podcasts のライブラリが見つかりません", self.run_app(1))
 
 
 if __name__ == "__main__":
