@@ -320,10 +320,10 @@ function start(row, audio, how, index = 0) {
   engine.addEventListener("position", () => { savePos(); updateMediaSession(); });
   engine.addEventListener("finished", () => {
     store.savePosition(current.id, { segIndex: 0, segId: row.doc.segments[0].id, total: row.doc.segments.length, finished: true });
-    setStatus("Finished");
+    setStatus("Finished", false, true);
   });
-  engine.addEventListener("interrupted", () => { savePos(); setStatus("Stopped. Tap to resume."); });
-  engine.addEventListener("error", (e) => setStatus(e.detail.message, true));
+  engine.addEventListener("interrupted", () => { savePos(); setStatus("Stopped. Tap to resume.", false, true); });
+  engine.addEventListener("error", (e) => setStatus(e.detail.message, true, true));
   $("subtitle").lang = row.doc.sourceLanguage || "en";
   $("spoken").lang = row.doc.targetLanguage || "ja";
   setStatus(row.mode === "sprite" || settings.keepAwake ? "" : "Screen lock may stop playback");
@@ -334,7 +334,10 @@ function start(row, audio, how, index = 0) {
   engine.play();
 }
 
-function setStatus(text, error = false) {
+// untilPlay: 止まった理由のお知らせ。再生が始まったら消す
+let statusUntilPlay = false;
+function setStatus(text, error = false, untilPlay = false) {
+  statusUntilPlay = untilPlay;
   $("playerStatus").textContent = text;
   $("playerStatus").className = "status center" + (error ? " error" : "");
 }
@@ -445,6 +448,7 @@ function renderPlayer() {
     $("stage").scrollTop = 0;
   }
   $("player").classList.toggle("paused", !s.playing);
+  if (s.playing && statusUntilPlay) setStatus("");
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s.playing ? "playing" : "paused";
   updateWakeLock();
 }

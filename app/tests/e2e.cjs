@@ -358,6 +358,7 @@ async function openMaterial(page, title, button) {
   await waitFor(page, () => !window.__engine.playing);
   check("再生の途中の停止は中断として止まる", /Stopped/.test(await page.textContent("#playerStatus")));
   await page.evaluate(() => window.__engine.play());
+  check("再開したら「Stopped」のお知らせを消す", await page.textContent("#playerStatus") === "");
   await waitFor(page, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling());
   await page.evaluate(() => window.__systemPause());
   check("切り替えから時間がたてばロック画面で一時停止できる", await page.evaluate(() => !window.__engine.playing));
