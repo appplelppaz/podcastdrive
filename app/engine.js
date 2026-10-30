@@ -9,6 +9,7 @@
 //   direct  元音声（MP3）＋端末の音声合成（speechSynthesis）。準備が要らないが、画面表示中向け。
 //
 // 操作のたびに token を進め、古い手順は token が変わった時点で何もせずに終わる。
+// 一時停止したときは、その手順の中の位置（音声の秒・読み上げの文字位置）を覚えて、続きから再開する。
 
 export const DEFAULTS = {
   firstRepeats: 1,
@@ -189,7 +190,8 @@ export function pickVoice(lang, voices = window.speechSynthesis ? window.speechS
   return cands.slice().sort((a, b) => score(b) - score(a))[0];
 }
 
-function speakWithSynthesis(text, lang, rate) {
+// onWord(i): 読み上げ中の単語の先頭の文字位置（続きから読み直すのに使う）
+function speakWithSynthesis(text, lang, rate, onWord) {
   const synth = window.speechSynthesis;
   let finishNow = null;
   return {
@@ -207,6 +209,7 @@ function speakWithSynthesis(text, lang, rate) {
       const finish = (r) => { if (!done) { done = true; clearTimeout(t); resolve(r); } };
       finishNow = finish;
       u.onend = () => finish("end");
+      u.onboundary = (e) => { if (onWord && (!e.name || e.name === "word") && e.charIndex >= 0) onWord(e.charIndex); };
       u.onerror = (e) => finish(e.error === "interrupted" || e.error === "canceled" ? "cancel" : "error:" + e.error);
       // onend が来ない環境への保険
       const t = setTimeout(() => finish("timeout"), ([...text].length / (base === "ja" || base === "zh" ? 6 : 12) / rate + 4) * 1000);
@@ -248,6 +251,8 @@ export class ListeningEngine extends EventTarget {
     this.speech = null;
     this.log = [];
     this.stepStartedAt = -1e9;
+    this.resumeAt = null;  // 一時停止した位置 { seg, step, at }（at: 音声の秒 / 読み上げの文字位置）
+    this.speechAt = 0;     // 今の読み上げで読んでいる単語の文字位置
     this.clips = (doc.audio && doc.audio.clips) || {};
     this.silence = this.clips.silence;
     el.addEventListener("pause", () => this.onElementPause());
@@ -273,6 +278,7 @@ export class ListeningEngine extends EventTarget {
     if (!this.playing) {
       this.steps = this.makeSteps();
       this.stepIndex = 0;
+      this.resumeAt = null;
     }
     this.emit();
   }
@@ -340,23 +346,76 @@ export class ListeningEngine extends EventTarget {
   toggle() { this.playing ? this.pause() : this.play(); }
 
   halt() {
+    if (this.playing) this.resumeAt = this.position();
     this.playing = false;
     this.token++;
     this.player.stop();
     if (this.speech) { this.speech.cancel(); this.speech = null; }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
-    // 中断した手順は、再開時にその手順の最初から（元音声なら区間の頭から）やり直す
     this.emit("position");
   }
 
-  goto(index, { keepPlaying = true } = {}) {
+  // 今の手順の中の位置。無音や、位置が分からないときは null（その手順の最初からやり直す）
+  position() {
+    const step = this.step;
+    if (!step || step.kind === "pause") return null;
+    let at = null;
+    if (this.mode === "sprite") {
+      const c = this.clips[step.clip];
+      const t = this.el.currentTime;
+      if (c && t > c.start && t < c.end - 0.05) at = t;
+    } else if (step.kind === "original") {
+      const { begin, end } = this.segment.clip;
+      const t = this.el.currentTime;
+      if (t > begin && t < end - 0.05) at = t;
+    } else if (this.speechAt > 0 && this.speechAt < step.text.length) {
+      at = this.speechAt;
+    }
+    return at === null ? null : { seg: this.segIndex, step: this.stepIndex, at };
+  }
+
+  // stage: 文の中の段階の番号（-1 で最後の段階）。省略すると文の最初から
+  goto(index, { keepPlaying = true, stage = 0 } = {}) {
     const wasPlaying = this.playing && keepPlaying;
     if (this.playing) this.halt();
     this.segIndex = Math.min(Math.max(0, index), this.doc.segments.length - 1);
     this.steps = this.makeSteps();
-    this.stepIndex = 0;
+    const starts = this.stages();
+    this.stepIndex = starts[stage < 0 ? starts.length - 1 : Math.min(stage, starts.length - 1)];
+    this.resumeAt = null;
     this.emit("position");
     if (wasPlaying) this.play(); else this.emit();
+  }
+
+  // 文の中の段階: 原文 → 訳 → 語彙 → 解説（設定で外したもの・説明がないものはない）。
+  // 各段階の最初の手順の位置を返す。説明のあとの「もう一度」の元音声は最後の段階に含める
+  stages() {
+    const out = [0];
+    let last = null;
+    this.steps.forEach((st, i) => { if (st.group && st.group !== last) { out.push(i); last = st.group; } });
+    return out;
+  }
+
+  stage() {
+    const starts = this.stages();
+    let k = 0;
+    while (k + 1 < starts.length && starts[k + 1] <= this.stepIndex) k++;
+    return k;
+  }
+
+  // 段階を1つ進める。最後の段階からは次の文へ
+  forward() {
+    const k = this.stage();
+    if (k + 1 < this.stages().length) this.goto(this.segIndex, { stage: k + 1 });
+    else this.next();
+  }
+
+  // 段階を1つ戻す。原文の段階からは前の文の最後の段階へ
+  back() {
+    const k = this.stage();
+    if (k > 0) this.goto(this.segIndex, { stage: k - 1 });
+    else if (this.segIndex > 0) this.goto(this.segIndex - 1, { stage: -1 });
+    else this.goto(0);
   }
 
   next() { if (this.segIndex < this.doc.segments.length - 1) this.goto(this.segIndex + 1); }
@@ -370,10 +429,13 @@ export class ListeningEngine extends EventTarget {
         if (!this.advanceSegment()) return;
         continue;
       }
+      const r = this.resumeAt;
+      this.resumeAt = null;
+      const from = r && r.seg === this.segIndex && r.step === this.stepIndex ? r.at : null;
       this.stepStartedAt = performance.now();
-      this.log.push({ t: this.stepStartedAt, seg: this.segment.id, i: this.stepIndex, kind: step.kind, clip: step.clip, label: step.label, rate: step.rate });
+      this.log.push({ t: this.stepStartedAt, seg: this.segment.id, i: this.stepIndex, kind: step.kind, clip: step.clip, label: step.label, rate: step.rate, from });
       this.emit("step");
-      const result = await this.exec(step, token);
+      const result = await this.exec(step, token, from);
       if (token !== this.token) return;
       if (result && String(result).startsWith("error")) {
         this.halt();
@@ -394,6 +456,7 @@ export class ListeningEngine extends EventTarget {
       } else {
         this.playing = false;
         this.token++;
+        this.resumeAt = null;
         this.player.stop();
         this.segIndex = 0;
         this.steps = this.makeSteps();
@@ -412,20 +475,21 @@ export class ListeningEngine extends EventTarget {
     return true;
   }
 
-  async exec(step, token) {
+  // from: 一時停止した位置（元音声・スプライトは秒、読み上げは文字位置）。null なら手順の最初から
+  async exec(step, token, from = null) {
     if (this.mode === "sprite") {
       if (step.kind === "pause") {
         return this.player.play(this.silence.start, this.silence.start + step.seconds, 1);
       }
       const c = this.clips[step.clip];
       if (!c) return "error:clip-missing";
-      return this.player.play(c.start, c.end, step.rate);
+      return this.player.play(from ?? c.start, c.end, step.rate);
     }
     // direct: 元音声は MP3 の時刻、読み上げは端末の音声合成
     if (step.kind === "original") {
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       const { begin, end } = this.segment.clip;
-      return this.player.play(begin, end, step.rate);
+      return this.player.play(from ?? begin, end, step.rate);
     }
     this.player.stop();
     if (step.kind === "pause") {
@@ -434,7 +498,11 @@ export class ListeningEngine extends EventTarget {
         this.speech = { cancel: () => { clearTimeout(t); resolve("cancel"); } };
       });
     }
-    const sp = speakWithSynthesis(step.text, step.lang, step.rate);
+    // 続きから読むときは、止めた単語の頭から読み直す
+    const start = from || 0;
+    this.speechAt = start;
+    const sp = speakWithSynthesis(step.text.slice(start), step.lang, step.rate,
+      (i) => { if (this.speech === sp) this.speechAt = start + i; });
     this.speech = sp;
     const r = await sp.promise;
     if (token !== this.token) return "cancel";

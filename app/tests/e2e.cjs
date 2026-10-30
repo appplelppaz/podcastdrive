@@ -35,10 +35,14 @@ function mockSpeech() {
         rate: u.rate, audioPaused: audio.paused });
       if (u.text.trim() === "") { setTimeout(() => u.onend && u.onend(), 0); return; }
       cur = u; synth.speaking = true;
+      // 4文字ごとに単語の区切りを知らせる（実機の onboundary の代わり）
+      const words = [];
+      for (let i = 4; i < u.text.length; i += 4) words.push(setTimeout(() => cur === u && u.onboundary && u.onboundary({ name: "word", charIndex: i }), 250 * i / u.text.length));
       timer = setTimeout(() => { cur = null; synth.speaking = false; u.onend && u.onend(); }, 250);
+      u.__words = words;
     },
     cancel() {
-      if (cur) { clearTimeout(timer); const u = cur; cur = null; synth.speaking = false; u.onerror && u.onerror({ error: "interrupted" }); }
+      if (cur) { clearTimeout(timer); cur.__words.forEach(clearTimeout); const u = cur; cur = null; synth.speaking = false; u.onerror && u.onerror({ error: "interrupted" }); }
     },
   };
   Object.defineProperty(window, "speechSynthesis", { value: synth });
@@ -149,16 +153,68 @@ async function openMaterial(page, title, button) {
   check("タップで一時停止し、古い読み上げが続かない", !after.playing && after.n === n0 && !after.speaking && after.paused);
   await page.mouse.click(cx, cy);
   check("もう一度タップで再開", await page.evaluate(() => window.__engine.playing));
+
+  // ---- 一時停止した位置の続きから再開（元音声・読み上げ）
+  await page.evaluate(() => window.__engine.restart());
+  await waitFor(page, () => window.__engine.step.kind === "original" && window.__engine.originalTime() > window.__engine.segment.clip.begin + 0.4);
+  const tPause = await page.evaluate(() => { const e = window.__engine; e.pause(); return e.el.currentTime; });
+  await page.evaluate(() => window.__engine.play());
+  await waitFor(page, () => window.__engine.originalTime() > 0);
+  const resumedOrig = await page.evaluate(() => ({ log: window.__engine.log.at(-1), t: window.__engine.el.currentTime }));
+  check("元音声は止めた位置から再開", resumedOrig.log.kind === "original" && Math.abs(resumedOrig.log.from - tPause) < 0.05 && resumedOrig.t >= tPause - 0.05,
+    JSON.stringify({ tPause, resumedOrig }));
+  await waitFor(page, () => window.__engine.step.kind === "speech" && !window.__engine.step.cue && window.__engine.speechAt > 0);
+  const said = await page.evaluate(() => { const e = window.__engine; const r = { text: e.step.text, at: e.speechAt, step: e.stepIndex }; e.pause(); return r; });
+  const n1 = await page.evaluate(() => { const n = window.__speech.length; window.__engine.play(); return n; });
+  await waitFor(page, (n) => window.__speech.length > n, n1);
+  const resumedSpeech = await page.evaluate((n) => ({ text: window.__speech[n].text }), n1);
+  check("解説は止めた単語から読み直す（最初からではない）", resumedSpeech.text === said.text.slice(said.at) && said.at > 0,
+    JSON.stringify({ said, resumedSpeech }));
+  // 左スワイプは 原文 → 訳 → 語彙 → 解説 → 次の文 と段階を踏んで進む。右スワイプはその逆
+  await page.evaluate(() => window.__engine.restart());
   const before = await page.evaluate(() => window.__engine.segIndex);
-  await swipe(-150);
-  check("左スワイプで次の文", (await page.evaluate(() => window.__engine.segIndex)) === before + 1);
+  const where = () => page.evaluate(() => { const e = window.__engine; return { seg: e.segIndex, stage: e.step.group || e.step.kind, spoken: document.getElementById("spoken").textContent }; });
+  const stages = await page.evaluate(() => window.__engine.stages().map((i) => window.__engine.steps[i].group || "original"));
+  const trText = await page.evaluate(() => window.__engine.segment.parts.filter((p) => p.group === "translation").map((p) => p.text).join(""));
+  const fwd = [];
+  for (let i = 0; i < stages.length; i++) { await swipe(-150); fwd.push(await where()); }
+  check("左スワイプで訳・語彙・解説と1段ずつ進む", JSON.stringify(fwd.slice(0, -1).map((w) => w.stage)) === JSON.stringify(stages.slice(1)) && fwd.every((w, i) => i === fwd.length - 1 || w.seg === before),
+    JSON.stringify({ stages, fwd: fwd.map((w) => w.stage) }));
+  check("訳に進むと訳を表示", stages[1] === "translation" && fwd[0].spoken.replace(/\s/g, "") === trText.replace(/\s/g, ""), fwd[0].spoken);
+  check("最後の説明から左スワイプで次の文", fwd.at(-1).seg === before + 1 && fwd.at(-1).stage === "original", JSON.stringify(fwd.at(-1)));
   check("操作しても字幕に重なる表示を出さない", await page.evaluate(() => ![...document.querySelectorAll("#stage *")]
     .some((el) => !["subtitle", "spoken", "pausedMark"].includes(el.id) && !el.closest("#subtitle, #spoken") && el.getBoundingClientRect().height > 0)));
-  await swipe(150);
-  check("右スワイプで前の文", (await page.evaluate(() => window.__engine.segIndex)) === before);
+  const bwd = [];
+  for (let i = 0; i < stages.length; i++) { await swipe(150); bwd.push(await where()); }
+  check("右スワイプで前の文の最後の説明から1段ずつ戻る", bwd.every((w) => w.seg === before) && JSON.stringify(bwd.map((w) => w.stage)) === JSON.stringify(stages.slice().reverse()),
+    JSON.stringify(bwd.map((w) => w.stage)));
+  await page.evaluate(() => window.__engine.pause());
+  await swipe(-150);
+  check("一時停止中もスワイプで訳を表示", await page.evaluate(() => !window.__engine.playing && window.__engine.step.group === "translation" && document.getElementById("spoken").textContent.length > 0));
+  await page.evaluate(() => window.__engine.play());
   await waitFor(page, () => window.__engine.stepIndex >= 2);
   await page.mouse.move(cx, cy); await page.mouse.down(); await sleep(800); await page.mouse.up();
   check("長押しで今の文を最初から", await page.evaluate(() => window.__engine.stepIndex === 0 && window.__engine.playing && window.__engine.segIndex) === before);
+  // ---- 長い文: 画面に収まらなければ縦にスクロールして全部読める（上は切れない）
+  await page.evaluate(() => window.__engine.pause());
+  await page.setViewportSize({ width: 390, height: 520 });
+  const long = await page.evaluate(() => {
+    const st = document.getElementById("stage"), sp = document.getElementById("spoken");
+    sp.textContent = "まず菌類だけで言えば、環境条件でストレスを受けると、ほぼ休眠のような状態に入り、菌糸が引っ込みます。".repeat(4);
+    st.scrollTop = 0;
+    const subTop = document.getElementById("subtitle").getBoundingClientRect().top - st.getBoundingClientRect().top;
+    return { over: st.scrollHeight > st.clientHeight, subTop, page: document.documentElement.scrollHeight <= innerHeight + 1 };
+  });
+  await page.mouse.move(cx, 300); await page.mouse.wheel(0, 2000); await sleep(300);
+  const scrolled = await page.evaluate(() => { const st = document.getElementById("stage"), sp = document.getElementById("spoken");
+    return { top: st.scrollTop, spokenEnd: sp.getBoundingClientRect().bottom <= st.getBoundingClientRect().bottom + 1, whole: sp.scrollHeight <= sp.clientHeight + 1 }; });
+  check("長い文は縦にスクロールして最後まで読める", long.over && long.subTop >= 0 && long.page && scrolled.top > 0 && scrolled.spokenEnd && scrolled.whole, JSON.stringify({ long, scrolled }));
+  await page.screenshot({ path: path.join(DIR, "player-390-long.png") });
+  await page.setViewportSize({ width: 1366, height: 760 });
+  await page.evaluate(() => { document.getElementById("stage").scrollTop = 0; });
+  await page.screenshot({ path: path.join(DIR, "player-1366-long.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { document.getElementById("spoken").textContent = ""; window.__engine.play(); });
   await page.screenshot({ path: path.join(DIR, "player-390.png") });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.screenshot({ path: path.join(DIR, "player-390-dark.png") });
