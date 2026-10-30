@@ -374,15 +374,48 @@ export class ListeningEngine extends EventTarget {
     return at === null ? null : { seg: this.segIndex, step: this.stepIndex, at };
   }
 
-  goto(index, { keepPlaying = true } = {}) {
+  // stage: 文の中の段階の番号（-1 で最後の段階）。省略すると文の最初から
+  goto(index, { keepPlaying = true, stage = 0 } = {}) {
     const wasPlaying = this.playing && keepPlaying;
     if (this.playing) this.halt();
     this.segIndex = Math.min(Math.max(0, index), this.doc.segments.length - 1);
     this.steps = this.makeSteps();
-    this.stepIndex = 0;
+    const starts = this.stages();
+    this.stepIndex = starts[stage < 0 ? starts.length - 1 : Math.min(stage, starts.length - 1)];
     this.resumeAt = null;
     this.emit("position");
     if (wasPlaying) this.play(); else this.emit();
+  }
+
+  // 文の中の段階: 原文 → 訳 → 語彙 → 解説（設定で外したもの・説明がないものはない）。
+  // 各段階の最初の手順の位置を返す。説明のあとの「もう一度」の元音声は最後の段階に含める
+  stages() {
+    const out = [0];
+    let last = null;
+    this.steps.forEach((st, i) => { if (st.group && st.group !== last) { out.push(i); last = st.group; } });
+    return out;
+  }
+
+  stage() {
+    const starts = this.stages();
+    let k = 0;
+    while (k + 1 < starts.length && starts[k + 1] <= this.stepIndex) k++;
+    return k;
+  }
+
+  // 段階を1つ進める。最後の段階からは次の文へ
+  forward() {
+    const k = this.stage();
+    if (k + 1 < this.stages().length) this.goto(this.segIndex, { stage: k + 1 });
+    else this.next();
+  }
+
+  // 段階を1つ戻す。原文の段階からは前の文の最後の段階へ
+  back() {
+    const k = this.stage();
+    if (k > 0) this.goto(this.segIndex, { stage: k - 1 });
+    else if (this.segIndex > 0) this.goto(this.segIndex - 1, { stage: -1 });
+    else this.goto(0);
   }
 
   next() { if (this.segIndex < this.doc.segments.length - 1) this.goto(this.segIndex + 1); }

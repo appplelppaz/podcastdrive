@@ -170,13 +170,28 @@ async function openMaterial(page, title, button) {
   const resumedSpeech = await page.evaluate((n) => ({ text: window.__speech[n].text }), n1);
   check("解説は止めた単語から読み直す（最初からではない）", resumedSpeech.text === said.text.slice(said.at) && said.at > 0,
     JSON.stringify({ said, resumedSpeech }));
+  // 左スワイプは 原文 → 訳 → 語彙 → 解説 → 次の文 と段階を踏んで進む。右スワイプはその逆
+  await page.evaluate(() => window.__engine.restart());
   const before = await page.evaluate(() => window.__engine.segIndex);
-  await swipe(-150);
-  check("左スワイプで次の文", (await page.evaluate(() => window.__engine.segIndex)) === before + 1);
+  const where = () => page.evaluate(() => { const e = window.__engine; return { seg: e.segIndex, stage: e.step.group || e.step.kind, spoken: document.getElementById("spoken").textContent }; });
+  const stages = await page.evaluate(() => window.__engine.stages().map((i) => window.__engine.steps[i].group || "original"));
+  const trText = await page.evaluate(() => window.__engine.segment.parts.filter((p) => p.group === "translation").map((p) => p.text).join(""));
+  const fwd = [];
+  for (let i = 0; i < stages.length; i++) { await swipe(-150); fwd.push(await where()); }
+  check("左スワイプで訳・語彙・解説と1段ずつ進む", JSON.stringify(fwd.slice(0, -1).map((w) => w.stage)) === JSON.stringify(stages.slice(1)) && fwd.every((w, i) => i === fwd.length - 1 || w.seg === before),
+    JSON.stringify({ stages, fwd: fwd.map((w) => w.stage) }));
+  check("訳に進むと訳を表示", stages[1] === "translation" && fwd[0].spoken.replace(/\s/g, "") === trText.replace(/\s/g, ""), fwd[0].spoken);
+  check("最後の説明から左スワイプで次の文", fwd.at(-1).seg === before + 1 && fwd.at(-1).stage === "original", JSON.stringify(fwd.at(-1)));
   check("操作しても字幕に重なる表示を出さない", await page.evaluate(() => ![...document.querySelectorAll("#stage *")]
     .some((el) => !["subtitle", "spoken", "pausedMark"].includes(el.id) && !el.closest("#subtitle, #spoken") && el.getBoundingClientRect().height > 0)));
-  await swipe(150);
-  check("右スワイプで前の文", (await page.evaluate(() => window.__engine.segIndex)) === before);
+  const bwd = [];
+  for (let i = 0; i < stages.length; i++) { await swipe(150); bwd.push(await where()); }
+  check("右スワイプで前の文の最後の説明から1段ずつ戻る", bwd.every((w) => w.seg === before) && JSON.stringify(bwd.map((w) => w.stage)) === JSON.stringify(stages.slice().reverse()),
+    JSON.stringify(bwd.map((w) => w.stage)));
+  await page.evaluate(() => window.__engine.pause());
+  await swipe(-150);
+  check("一時停止中もスワイプで訳を表示", await page.evaluate(() => !window.__engine.playing && window.__engine.step.group === "translation" && document.getElementById("spoken").textContent.length > 0));
+  await page.evaluate(() => window.__engine.play());
   await waitFor(page, () => window.__engine.stepIndex >= 2);
   await page.mouse.move(cx, cy); await page.mouse.down(); await sleep(800); await page.mouse.up();
   check("長押しで今の文を最初から", await page.evaluate(() => window.__engine.stepIndex === 0 && window.__engine.playing && window.__engine.segIndex) === before);

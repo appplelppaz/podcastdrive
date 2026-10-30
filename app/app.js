@@ -418,8 +418,8 @@ function renderPlayer() {
   if ("mediaSession" in navigator) {
     try { navigator.mediaSession.playbackState = s.playing ? "playing" : "paused"; } catch { /* 未対応 */ }
   }
-  // 訳・語彙・解説の読み上げ中は、その項目の全文を原文の下に出す（案内の「訳」「表現」などは出さない）
-  if (step && step.kind === "speech" && !step.cue) {
+  // 訳・語彙・解説の読み上げ中（その前の案内の間も）は、その項目の全文を原文の下に出す
+  if (step && step.group) {
     const text = joinForDisplay(s.segment.parts.filter((p) => p.type === "speech" && p.group === step.group));
     if (text !== spokenText) {
       spokenText = text;
@@ -478,8 +478,8 @@ const tick = () => { if (navigator.vibrate) navigator.vibrate(10); };
 
 const actions = {
   toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); tick(); },
-  next() { if (!engine) return; engine.next(); tick(); },
-  previous() { if (!engine) return; engine.previous(); tick(); },
+  forward() { if (!engine) return; engine.forward(); tick(); },
+  back() { if (!engine) return; engine.back(); tick(); },
   restart() { if (!engine) return; engine.restart(); tick(); },
 };
 
@@ -489,7 +489,7 @@ $("back").onclick = () => {
   else show("home");
 };
 
-// タップ: 一時停止・再開 / 左スワイプ: 次の文 / 右スワイプ: 前の文 / 長押し: 今の文を最初から
+// タップ: 一時停止・再開 / 左スワイプ: 次へ（原文 → 訳 → 語彙 → 解説 → 次の文） / 右スワイプ: 1つ戻る / 長押し: 今の文を最初から
 const SWIPE = 50, TAP_MOVE = 12, HOLD_MS = 600;
 let g = null;
 const stage = $("stage");
@@ -510,7 +510,7 @@ stage.addEventListener("pointerup", (e) => {
   g = null;
   if (held) return;
   if (Math.abs(dx) >= SWIPE && Math.abs(dx) > Math.abs(dy) * 1.5) {
-    dx < 0 ? actions.next() : actions.previous();
+    dx < 0 ? actions.forward() : actions.back();
   } else if (Math.hypot(dx, dy) < TAP_MOVE) {
     actions.toggle();
   }
@@ -519,7 +519,7 @@ stage.addEventListener("pointercancel", () => { if (g) clearTimeout(g.timer); g 
 stage.addEventListener("contextmenu", (e) => e.preventDefault());
 document.addEventListener("keydown", (e) => {
   if ($("player").hidden || e.target.closest("input, select")) return;
-  const map = { " ": actions.toggle, ArrowRight: actions.next, ArrowLeft: actions.previous, r: actions.restart };
+  const map = { " ": actions.toggle, ArrowRight: actions.forward, ArrowLeft: actions.back, r: actions.restart };
   if (map[e.key]) { e.preventDefault(); map[e.key](); }
 });
 
