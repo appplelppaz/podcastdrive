@@ -284,6 +284,32 @@ async function openMaterial(page, title, button) {
   await waitFor(ipad, () => window.__engine && window.__engine !== window.__old && window.__engine.log.length > 0);
   check("iPad: 再生画面は全画面", await ipad.evaluate(() => { const r = document.getElementById("player").getBoundingClientRect(); return r.width === innerWidth && document.getElementById("home").hidden; }));
   await ipad.screenshot({ path: path.join(DIR, "ipad-player-1180.png") });
+  // iPad でも同じ操作: 段階ごとのスワイプ・止めた位置からの再開・長い文のスクロール・お知らせを消す
+  await ipad.setViewportSize({ width: 1366, height: 760 }); // 横（ホーム画面のアプリ）
+  await sleep(200);
+  const ib = await ipad.locator("#stage").boundingBox();
+  const icx = ib.x + ib.width / 2, icy = ib.y + ib.height / 2;
+  await ipad.evaluate(() => window.__engine.restart());
+  await ipad.mouse.move(icx, icy); await ipad.mouse.down(); await ipad.mouse.move(icx - 100, icy, { steps: 4 }); await ipad.mouse.move(icx - 200, icy, { steps: 4 }); await ipad.mouse.up();
+  check("iPad: 左スワイプで訳へ（次の文には進まない）", await ipad.evaluate(() => window.__engine.segIndex === 0 && window.__engine.step.group === "translation" && document.getElementById("spoken").textContent.length > 0));
+  await ipad.evaluate(() => window.__engine.restart());
+  await waitFor(ipad, () => window.__engine.step.kind === "original" && window.__engine.originalTime() > window.__engine.segment.clip.begin + 0.4);
+  await ipad.mouse.click(icx, icy);
+  const ipT = await ipad.evaluate(() => document.getElementById("audio").currentTime);
+  await ipad.mouse.click(icx, icy);
+  check("iPad: タップで止めた位置から再開", await ipad.evaluate((t) => { const l = window.__engine.log.at(-1); return window.__engine.playing && l.kind === "original" && Math.abs(l.from - t) < 0.05; }, ipT));
+  await waitFor(ipad, () => window.__engine.playing && window.__engine.step.kind === "original" && !window.__engine.settling() && !document.getElementById("audio").paused);
+  await ipad.evaluate(() => document.getElementById("audio").pause()); // 再生中の本当の中断（切り替え直後の停止は無視されるので、その後で）
+  await waitFor(ipad, () => !window.__engine.playing);
+  await ipad.evaluate(() => window.__engine.play());
+  check("iPad: 再開したら「Stopped」を消す", await ipad.textContent("#playerStatus") === "");
+  await ipad.evaluate(() => { window.__engine.pause(); document.getElementById("spoken").textContent = "まず菌類だけで言えば、環境条件でストレスを受けると、ほぼ休眠のような状態に入り、菌糸が引っ込みます。".repeat(5); });
+  await ipad.mouse.move(icx, icy); await ipad.mouse.wheel(0, 3000); await sleep(300);
+  check("iPad: 長い文は縦にスクロールして最後まで読める", await ipad.evaluate(() => { const st = document.getElementById("stage"), sp = document.getElementById("spoken");
+    return st.scrollHeight > st.clientHeight && st.scrollTop > 0 && sp.getBoundingClientRect().bottom <= st.getBoundingClientRect().bottom + 1; }));
+  await ipad.screenshot({ path: path.join(DIR, "ipad-player-long.png") });
+  await ipad.evaluate(() => { document.getElementById("spoken").textContent = ""; });
+  await ipad.setViewportSize({ width: 1366, height: 1024 });
   await ipad.setViewportSize({ width: 1024, height: 1366 }); // 縦
   await sleep(200);
   check("iPad: 再生画面の原文は大きい", await ipad.evaluate(() => parseFloat(getComputedStyle(document.getElementById("subtitle")).fontSize) >= 60));

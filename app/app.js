@@ -592,7 +592,17 @@ window.addEventListener("pagehide", () => savePos());
 // ---------------------------------------------------------------- 起動
 
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-  navigator.serviceWorker.register("sw.js").catch(() => { /* オフライン化できなくても使える */ });
+  const reg = navigator.serviceWorker.register("sw.js").catch(() => null); // オフライン化できなくても使える
+  // ホーム画面のアプリは閉じずに戻ってくることが多いので、戻ったときに新しい版を確かめ、
+  // 入れ替わったら再生していないときに読み直す（再生中なら止めたとき・一覧に戻ったときに）
+  const hadController = !!navigator.serviceWorker.controller;
+  let updateReady = false;
+  const reloadIfIdle = () => { if (updateReady && !(engine && engine.playing)) { savePos(); location.reload(); } };
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) { updateReady = true; reloadIfIdle(); } });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") reg.then((r) => r && r.update()).catch(() => {});
+  });
+  setInterval(reloadIfIdle, 2000);
 }
 
 const params = new URLSearchParams(location.search);
