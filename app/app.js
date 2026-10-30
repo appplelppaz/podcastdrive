@@ -343,6 +343,7 @@ function setStatus(text, error = false) {
 let renderedSeg = null;
 let wordEls = [];
 let spokenText = "";
+let lastNow = null;
 
 function renderSubtitle(seg) {
   if (renderedSeg === seg) return;
@@ -366,6 +367,14 @@ function renderSubtitle(seg) {
   }
   spokenText = "";
   $("spoken").textContent = "";
+  $("stage").scrollTop = 0;
+}
+
+// 長い文で画面に収まらないとき、el が見えるところまでスクロールする（上端を優先）
+function reveal(el) {
+  const st = $("stage"), top = el.offsetTop - 12, bottom = el.offsetTop + el.offsetHeight + 12;
+  if (bottom > st.scrollTop + st.clientHeight) st.scrollTop = Math.min(top, bottom - st.clientHeight);
+  else if (top < st.scrollTop) st.scrollTop = top;
 }
 
 function highlight() {
@@ -374,7 +383,7 @@ function highlight() {
   const box = $("subtitle");
   box.classList.toggle("idle", t === null);
   if (t === null) return;
-  let prevDone = false;
+  let prevDone = false, now = null;
   for (const w of wordEls) {
     if (w.dataset.b === undefined) {
       // 時刻のない文字（句読点や照らし合わせで合わなかった文字）は直前の単語に合わせる
@@ -384,9 +393,13 @@ function highlight() {
     }
     const b = Number(w.dataset.b), e = Number(w.dataset.e);
     w.classList.toggle("now", t >= b && t < e);
+    if (t >= b && t < e) now = w;
     w.classList.toggle("done", t >= e);
     prevDone = t >= e;
   }
+  // 読まれている単語が画面の外に出たら、その単語が見えるところまで送る（単語が変わったときだけ）
+  if (now && now !== lastNow) reveal(now);
+  lastNow = now;
 }
 
 function frame() {
@@ -424,10 +437,12 @@ function renderPlayer() {
     if (text !== spokenText) {
       spokenText = text;
       $("spoken").textContent = text;
+      reveal($("spoken"));
     }
-  } else if (step && step.kind === "original") {
+  } else if (step && step.kind === "original" && spokenText) {
     spokenText = "";
     $("spoken").textContent = "";
+    $("stage").scrollTop = 0;
   }
   $("player").classList.toggle("paused", !s.playing);
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s.playing ? "playing" : "paused";

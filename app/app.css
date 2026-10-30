@@ -148,15 +148,22 @@ select { font: inherit; background: var(--night); color: var(--lamp); border: 1p
 .help { margin-top: 28px; }
 
 /* ---- 再生画面: 字幕・訳・語彙と文法だけを大きく出す（運転中・ランニング中に一目で読めるように） */
-.player { position: relative; display: flex; flex-direction: column; max-width: 960px; min-height: 100vh; min-height: 100dvh;
+.player { position: relative; display: flex; flex-direction: column; max-width: 960px; height: 100vh; height: 100dvh;
   padding: 0 clamp(16px, 4vw, 40px) 12px; }
 .back { position: absolute; top: 4px; left: 4px; z-index: 1; width: 48px; height: 48px; border: 0; background: none;
   color: var(--haze); opacity: .6; font: inherit; font-size: 34px; line-height: 1; cursor: pointer; }
-.stage { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center;
-  gap: clamp(16px, 3.5vmin, 32px); padding: 52px 0 24px; overflow: hidden;
-  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; outline: none; }
+/* 長い文は縦にスクロールできる（横のスワイプとタップ・長押しはアプリが受け取る） */
+.stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+  gap: clamp(16px, 3.5vmin, 32px); margin-top: 36px; padding: 16px 0 24px;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(transparent, #000 16px); mask-image: linear-gradient(transparent, #000 16px);
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; outline: none; }
 .subtitle { margin: 0; font-size: clamp(30px, calc(5vmin + 2vw), 50px); line-height: 1.28; font-weight: 700;
   overflow-wrap: break-word; }
+.stage > * { flex-shrink: 0; }
+/* 収まるときは縦の中央、収まらないときは上から（justify-content: center だと上が切れて戻れない） */
+.stage > .subtitle { margin-top: auto; }
+.stage > .spoken { margin-bottom: auto; }
 .subtitle .w { color: var(--haze); transition: color .08s; }
 .subtitle .w.done { color: var(--lamp); }
 .subtitle .w.now { color: var(--dial); }
@@ -169,7 +176,7 @@ select { font: inherit; background: var(--night); color: var(--lamp); border: 1p
 .player.paused .paused-mark { visibility: visible; }
 .player.paused .subtitle, .player.paused .spoken { opacity: .55; }
 .player .status:empty { display: none; }
-@media (max-height: 480px) { .stage { padding-top: 40px; gap: 12px; } }
+@media (max-height: 480px) { .stage { margin-top: 24px; gap: 12px; } }
 
 /* ---- iPad 版（html.split）: 左に一覧、右に選んだエピソードか設定。再生画面は全画面で大きく */
 .pane-empty { display: flex; align-items: center; justify-content: center; color: var(--haze); font-size: 20px; font-weight: 700; }
@@ -186,11 +193,11 @@ html.split .player { position: fixed; inset: 0; z-index: 2; height: auto; backgr
    文字と余白を画面に合わせて大きくする */
 @media (min-width: 900px) and (min-height: 700px) {
   .player { max-width: none; padding: env(safe-area-inset-top) 5vw 20px; }
-  .stage { gap: 3.2vmin; padding-top: 88px; }
+  .stage { gap: 3.2vmin; margin-top: calc(72px + env(safe-area-inset-top)); }
   .subtitle { font-size: clamp(56px, 6.8vmin, 92px); line-height: 1.25; }
   .spoken { font-size: clamp(38px, 4.7vmin, 64px); padding-left: 22px; border-left-width: 6px; }
   .back { top: max(12px, env(safe-area-inset-top)); left: 16px; width: 72px; height: 72px; font-size: 56px; }
-  .paused-mark { top: 16px; font-size: 48px; }
+  .paused-mark { top: max(16px, env(safe-area-inset-top)); font-size: 48px; }
   .player .status { font-size: 22px; }
   /* 一覧・エピソード・設定も一段大きく */
   body { font-size: 19px; }

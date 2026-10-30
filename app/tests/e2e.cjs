@@ -195,6 +195,26 @@ async function openMaterial(page, title, button) {
   await waitFor(page, () => window.__engine.stepIndex >= 2);
   await page.mouse.move(cx, cy); await page.mouse.down(); await sleep(800); await page.mouse.up();
   check("長押しで今の文を最初から", await page.evaluate(() => window.__engine.stepIndex === 0 && window.__engine.playing && window.__engine.segIndex) === before);
+  // ---- 長い文: 画面に収まらなければ縦にスクロールして全部読める（上は切れない）
+  await page.evaluate(() => window.__engine.pause());
+  await page.setViewportSize({ width: 390, height: 520 });
+  const long = await page.evaluate(() => {
+    const st = document.getElementById("stage"), sp = document.getElementById("spoken");
+    sp.textContent = "まず菌類だけで言えば、環境条件でストレスを受けると、ほぼ休眠のような状態に入り、菌糸が引っ込みます。".repeat(4);
+    st.scrollTop = 0;
+    const subTop = document.getElementById("subtitle").getBoundingClientRect().top - st.getBoundingClientRect().top;
+    return { over: st.scrollHeight > st.clientHeight, subTop, page: document.documentElement.scrollHeight <= innerHeight + 1 };
+  });
+  await page.mouse.move(cx, 300); await page.mouse.wheel(0, 2000); await sleep(300);
+  const scrolled = await page.evaluate(() => { const st = document.getElementById("stage"), sp = document.getElementById("spoken");
+    return { top: st.scrollTop, spokenEnd: sp.getBoundingClientRect().bottom <= st.getBoundingClientRect().bottom + 1, whole: sp.scrollHeight <= sp.clientHeight + 1 }; });
+  check("長い文は縦にスクロールして最後まで読める", long.over && long.subTop >= 0 && long.page && scrolled.top > 0 && scrolled.spokenEnd && scrolled.whole, JSON.stringify({ long, scrolled }));
+  await page.screenshot({ path: path.join(DIR, "player-390-long.png") });
+  await page.setViewportSize({ width: 1366, height: 760 });
+  await page.evaluate(() => { document.getElementById("stage").scrollTop = 0; });
+  await page.screenshot({ path: path.join(DIR, "player-1366-long.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { document.getElementById("spoken").textContent = ""; window.__engine.play(); });
   await page.screenshot({ path: path.join(DIR, "player-390.png") });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.screenshot({ path: path.join(DIR, "player-390-dark.png") });
