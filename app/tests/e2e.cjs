@@ -35,10 +35,14 @@ function mockSpeech() {
         rate: u.rate, audioPaused: audio.paused });
       if (u.text.trim() === "") { setTimeout(() => u.onend && u.onend(), 0); return; }
       cur = u; synth.speaking = true;
+      // 4文字ごとに単語の区切りを知らせる（実機の onboundary の代わり）
+      const words = [];
+      for (let i = 4; i < u.text.length; i += 4) words.push(setTimeout(() => cur === u && u.onboundary && u.onboundary({ name: "word", charIndex: i }), 250 * i / u.text.length));
       timer = setTimeout(() => { cur = null; synth.speaking = false; u.onend && u.onend(); }, 250);
+      u.__words = words;
     },
     cancel() {
-      if (cur) { clearTimeout(timer); const u = cur; cur = null; synth.speaking = false; u.onerror && u.onerror({ error: "interrupted" }); }
+      if (cur) { clearTimeout(timer); cur.__words.forEach(clearTimeout); const u = cur; cur = null; synth.speaking = false; u.onerror && u.onerror({ error: "interrupted" }); }
     },
   };
   Object.defineProperty(window, "speechSynthesis", { value: synth });
@@ -149,6 +153,23 @@ async function openMaterial(page, title, button) {
   check("タップで一時停止し、古い読み上げが続かない", !after.playing && after.n === n0 && !after.speaking && after.paused);
   await page.mouse.click(cx, cy);
   check("もう一度タップで再開", await page.evaluate(() => window.__engine.playing));
+
+  // ---- 一時停止した位置の続きから再開（元音声・読み上げ）
+  await page.evaluate(() => window.__engine.restart());
+  await waitFor(page, () => window.__engine.step.kind === "original" && window.__engine.originalTime() > window.__engine.segment.clip.begin + 0.4);
+  const tPause = await page.evaluate(() => { const e = window.__engine; e.pause(); return e.el.currentTime; });
+  await page.evaluate(() => window.__engine.play());
+  await waitFor(page, () => window.__engine.originalTime() > 0);
+  const resumedOrig = await page.evaluate(() => ({ log: window.__engine.log.at(-1), t: window.__engine.el.currentTime }));
+  check("元音声は止めた位置から再開", resumedOrig.log.kind === "original" && Math.abs(resumedOrig.log.from - tPause) < 0.05 && resumedOrig.t >= tPause - 0.05,
+    JSON.stringify({ tPause, resumedOrig }));
+  await waitFor(page, () => window.__engine.step.kind === "speech" && !window.__engine.step.cue && window.__engine.speechAt > 0);
+  const said = await page.evaluate(() => { const e = window.__engine; const r = { text: e.step.text, at: e.speechAt, step: e.stepIndex }; e.pause(); return r; });
+  const n1 = await page.evaluate(() => { const n = window.__speech.length; window.__engine.play(); return n; });
+  await waitFor(page, (n) => window.__speech.length > n, n1);
+  const resumedSpeech = await page.evaluate((n) => ({ text: window.__speech[n].text }), n1);
+  check("解説は止めた単語から読み直す（最初からではない）", resumedSpeech.text === said.text.slice(said.at) && said.at > 0,
+    JSON.stringify({ said, resumedSpeech }));
   const before = await page.evaluate(() => window.__engine.segIndex);
   await swipe(-150);
   check("左スワイプで次の文", (await page.evaluate(() => window.__engine.segIndex)) === before + 1);
