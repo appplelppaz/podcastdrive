@@ -168,10 +168,6 @@ select { font: inherit; background: var(--night); color: var(--lamp); border: 1p
   font-size: 28px; font-weight: 700; color: var(--dial); visibility: hidden; }
 .player.paused .paused-mark { visibility: visible; }
 .player.paused .subtitle, .player.paused .spoken { opacity: .55; }
-.flash { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.9); padding: 16px 26px;
-  border-radius: 30px; background: var(--dial); color: var(--on-dial); font-size: 26px; font-weight: 700;
-  opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; white-space: nowrap; }
-.flash.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .player .status:empty { display: none; }
 @media (max-height: 480px) { .stage { padding-top: 40px; gap: 12px; } }
 
@@ -195,7 +191,6 @@ html.split .player { position: fixed; inset: 0; z-index: 2; height: auto; backgr
   .spoken { font-size: clamp(38px, 4.7vmin, 64px); padding-left: 22px; border-left-width: 6px; }
   .back { top: max(12px, env(safe-area-inset-top)); left: 16px; width: 72px; height: 72px; font-size: 56px; }
   .paused-mark { top: 16px; font-size: 48px; }
-  .flash { font-size: 40px; padding: 22px 38px; border-radius: 44px; }
   .player .status { font-size: 22px; }
   /* 一覧・エピソード・設定も一段大きく */
   body { font-size: 19px; }
