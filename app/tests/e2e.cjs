@@ -207,6 +207,33 @@ async function openMaterial(page, title, button) {
   await page.screenshot({ path: path.join(DIR, "settings-390.png"), fullPage: true });
   await page.click("#settingsBack");
 
+  // ---- iPad 版（?layout=ipad。本番は /ipad/）: 一覧とエピソードを左右に並べる
+  const ipad = await ctx.newPage();
+  await ipad.setViewportSize({ width: 1366, height: 1024 }); // iPad Pro 12.9（横）
+  await ipad.goto(BASE + "?layout=ipad");
+  await ipad.waitForSelector("#sentences li");
+  const split = await ipad.evaluate(() => {
+    const h = document.getElementById("home").getBoundingClientRect(), e = document.getElementById("episode").getBoundingClientRect();
+    return { side: h.width > 0 && e.width > 0 && e.left >= h.right - 1, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+  });
+  check("iPad: 一覧とエピソードを左右に並べる", split.side && !split.overflow, JSON.stringify(split));
+  await ipad.screenshot({ path: path.join(DIR, "ipad-1180.png") });
+  await ipad.click("#openSettings");
+  check("iPad: 設定は右に出て一覧は残る", await ipad.isVisible("#originalRate") && await ipad.isVisible("#library"));
+  await ipad.click("#settingsBack");
+  await ipad.evaluate(() => { window.__old = window.__engine; });
+  await ipad.locator("#sentences li").first().locator("button").click();
+  await waitFor(ipad, () => window.__engine && window.__engine !== window.__old && window.__engine.log.length > 0);
+  check("iPad: 再生画面は全画面", await ipad.evaluate(() => { const r = document.getElementById("player").getBoundingClientRect(); return r.width === innerWidth && document.getElementById("home").hidden; }));
+  await ipad.screenshot({ path: path.join(DIR, "ipad-player-1180.png") });
+  await ipad.setViewportSize({ width: 1024, height: 1366 }); // 縦
+  await sleep(200);
+  check("iPad: 再生画面の原文は大きい", await ipad.evaluate(() => parseFloat(getComputedStyle(document.getElementById("subtitle")).fontSize) >= 60));
+  await ipad.screenshot({ path: path.join(DIR, "ipad-player-portrait.png") });
+  await ipad.click("#back");
+  check("iPad: 戻ると左右の画面", await ipad.isVisible("#library") && await ipad.isVisible("#sentences"));
+  await ipad.close();
+
   // ---- 以前の方式（準備済みの .listening.json ＋ .listening.m4a）も読める
   await page.goto(BASE + "?import=" + encodeURIComponent("materials/" + PREPARED + ".listening.json"));
   await waitFor(page, () => /Added/.test(document.getElementById("importStatus").textContent));

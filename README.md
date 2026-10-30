@@ -125,6 +125,7 @@ Mac に Dropbox のアプリが要り、ターミナルにフルディスクア�
 アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。
 
 - URL: https://podcastdrive-app.vercel.app
+- iPad 版: https://podcastdrive-app.vercel.app/ipad/ （同じアプリを左右2列で表示。教材・設定は共通。`app/vercel.json` の書き換えで配る）
 - `main` に変更を入れると、自動で再デプロイされます。
 
 公開されるのはアプリ本体だけで、教材は含みません。教材は各端末に取り込みます。

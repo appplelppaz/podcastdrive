@@ -9,6 +9,8 @@ let engine = null;
 let current = null; // 開いている教材の行
 let audioUrl = null;
 let rowsById = new Map(); // 一覧の教材（音声は参照だけ。開くときに待たずに再生を始めるため）
+// iPad 版（index.html が html に split を付ける）: 一覧（左）は出したまま、右にエピソードか設定を出す
+const SPLIT = document.documentElement.classList.contains("split");
 
 // ---------------------------------------------------------------- 設定
 
@@ -116,6 +118,7 @@ async function renderLibrary() {
     const resumable = pos && !pos.finished && pos.segIndex > 0;
     const li = document.createElement("li");
     li.dataset.id = row.id;
+    if (SPLIT && row.id === episodeId) li.classList.add("selected");
     li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"><span class="lang-tag"></span><span class="ch"></span></span></button>` +
       `<div class="track" aria-hidden="true"><span></span></div><div class="meta"></div><div class="actions"></div>`;
     li.querySelector(".name").textContent = row.title;
@@ -208,6 +211,7 @@ function openEpisode(id) {
   show("episode");
   const here = ol.querySelector(".here");
   if (here) here.scrollIntoView({ block: "center" });
+  else if (SPLIT) $("episode").scrollTop = 0;
   else window.scrollTo(0, 0);
 }
 
@@ -215,11 +219,15 @@ $("epDelete").onclick = async () => {
   const row = rowsById.get(episodeId);
   if (!row || !confirm(`Delete “${row.title}”?`)) return;
   await store.deleteMaterial(row.id);
+  episodeId = null;
   show("home");
 };
 $("episodeBack").onclick = () => show("home");
 $("openSettings").onclick = () => show("settings");
-$("settingsBack").onclick = () => show("home");
+$("settingsBack").onclick = () => {
+  if (SPLIT) rightPane = episodeId ? "episode" : null;
+  show("home");
+};
 
 $("fileInput").addEventListener("change", async (e) => {
   const status = $("importStatus");
@@ -442,7 +450,21 @@ async function updateWakeLock() {
 }
 
 const SCREENS = { home: "home", episode: "episode", settings: "settingsScreen", player: "player" };
+let rightPane = null;
 function show(name) {
+  if (SPLIT && name !== "player") {
+    if (name === "episode" || name === "settings") rightPane = name;
+    if (rightPane === "episode" && !episodeId) rightPane = null;
+    $("home").hidden = false;
+    $("episode").hidden = rightPane !== "episode";
+    $("settingsScreen").hidden = rightPane !== "settings";
+    $("paneEmpty").hidden = !!rightPane;
+    $("player").hidden = true;
+    renderLibrary();
+    if (rightPane === "settings") renderSettings();
+    return;
+  }
+  $("paneEmpty").hidden = true;
   for (const [key, id] of Object.entries(SCREENS)) $(id).hidden = key !== name;
   if (name === "home") renderLibrary();
   if (name === "settings") renderSettings();
@@ -470,7 +492,8 @@ const actions = {
 
 $("back").onclick = () => {
   if (engine) { engine.pause(); savePos(); }
-  show("home");
+  if (SPLIT && episodeId) openEpisode(episodeId); // 止めた文の印を新しくする
+  else show("home");
 };
 
 // タップ: 一時停止・再開 / 左スワイプ: 次の文 / 右スワイプ: 前の文 / 長押し: 今の文を最初から
@@ -569,5 +592,12 @@ if (params.get("import")) {
     .catch((err) => { $("importStatus").className = "status error"; $("importStatus").textContent = err.message; });
 }
 show("home");
+if (SPLIT) {
+  // 最後に聞いたエピソード（なければ最初のもの）を右に開いておく
+  store.listMaterials().then((rows) => {
+    const last = rows.find((r) => r.id === store.lastMaterialId()) || rows[0];
+    if (last && !episodeId) { rowsById = new Map(rows.map((r) => [r.id, r])); openEpisode(last.id); }
+  });
+}
 window.__appStarted = true; // index.html の起動確認用
 try { sessionStorage.removeItem(window.__appResetKey || "listening.autoReset"); } catch { /* なくてもよい */ }
