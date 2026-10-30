@@ -209,7 +209,7 @@ async function openMaterial(page, title, button) {
 
   // ---- iPad 版（?layout=ipad。本番は /ipad/）: 一覧とエピソードを左右に並べる
   const ipad = await ctx.newPage();
-  await ipad.setViewportSize({ width: 1180, height: 820 });
+  await ipad.setViewportSize({ width: 1366, height: 1024 }); // iPad Pro 12.9（横）
   await ipad.goto(BASE + "?layout=ipad");
   await ipad.waitForSelector("#sentences li");
   const split = await ipad.evaluate(() => {
@@ -226,6 +226,10 @@ async function openMaterial(page, title, button) {
   await waitFor(ipad, () => window.__engine && window.__engine !== window.__old && window.__engine.log.length > 0);
   check("iPad: 再生画面は全画面", await ipad.evaluate(() => { const r = document.getElementById("player").getBoundingClientRect(); return r.width === innerWidth && document.getElementById("home").hidden; }));
   await ipad.screenshot({ path: path.join(DIR, "ipad-player-1180.png") });
+  await ipad.setViewportSize({ width: 1024, height: 1366 }); // 縦
+  await sleep(200);
+  check("iPad: 再生画面の原文は大きい", await ipad.evaluate(() => parseFloat(getComputedStyle(document.getElementById("subtitle")).fontSize) >= 60));
+  await ipad.screenshot({ path: path.join(DIR, "ipad-player-portrait.png") });
   await ipad.click("#back");
   check("iPad: 戻ると左右の画面", await ipad.isVisible("#library") && await ipad.isVisible("#sentences"));
   await ipad.close();

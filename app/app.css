@@ -184,14 +184,28 @@ html.split #home { grid-column: 1; border-right: 1px solid var(--rule); padding:
 html.split #episode, html.split #settingsScreen, html.split .pane-empty { grid-column: 2; padding: 20px clamp(24px, 4vw, 56px) 48px; }
 html.split #episode > *, html.split #settingsScreen > * { max-width: 760px; }
 html.split .library li.selected { box-shadow: inset 0 0 0 2px var(--dial); }
-html.split .hero-line { font-size: 22px; }
-html.split .sentences .o { font-size: 20px; }
-html.split .sentences .j { font-size: 16px; }
-html.split .player { position: fixed; inset: 0; z-index: 2; max-width: none; height: auto; background: var(--night);
-  padding: env(safe-area-inset-top) clamp(32px, 6vw, 96px) 16px; }
-html.split .player .stage { max-width: 1000px; width: 100%; margin: 0 auto; }
-html.split .subtitle { font-size: clamp(36px, calc(3vw + 2.4vmin), 64px); }
-html.split .spoken { font-size: clamp(24px, calc(1.8vw + 1.6vmin), 40px); }
-html.split .player .back { top: max(8px, env(safe-area-inset-top)); left: 12px; }
+html.split .player { position: fixed; inset: 0; z-index: 2; height: auto; background: var(--night); }
+
+/* 大きな画面（iPad Pro 12.9 など）の再生画面: iPhone と同じ並び（左揃え・ほぼ全幅・文は縦の中央）のまま、
+   文字と余白を画面に合わせて大きくする */
+@media (min-width: 900px) and (min-height: 700px) {
+  .player { max-width: none; padding: env(safe-area-inset-top) 5vw 20px; }
+  .stage { gap: 3.2vmin; padding-top: 88px; }
+  .subtitle { font-size: clamp(56px, 6.8vmin, 92px); line-height: 1.25; }
+  .spoken { font-size: clamp(38px, 4.7vmin, 64px); padding-left: 22px; border-left-width: 6px; }
+  .back { top: max(12px, env(safe-area-inset-top)); left: 16px; width: 72px; height: 72px; font-size: 56px; }
+  .paused-mark { top: 16px; font-size: 48px; }
+  .flash { font-size: 40px; padding: 22px 38px; border-radius: 44px; }
+  .player .status { font-size: 22px; }
+  /* 一覧・エピソード・設定も一段大きく */
+  body { font-size: 19px; }
+  .hint, .status, .library .channel, .library .meta, .hero-meta, .ep-meta, .hero-where { font-size: 17px; }
+  .library .name { font-size: 21px; }
+  .hero-line { font-size: 26px; }
+  .ep-title { font-size: 34px; }
+  .sentences .o { font-size: 24px; }
+  .sentences .j { font-size: 18px; }
+  .sentences .t { font-size: 16px; }
+}
 html.split #episode .bar { display: none; }
 html.split .library .pick, html.split #heroPick { display: none; }
