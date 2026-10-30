@@ -152,6 +152,8 @@ async function openMaterial(page, title, button) {
   const before = await page.evaluate(() => window.__engine.segIndex);
   await swipe(-150);
   check("左スワイプで次の文", (await page.evaluate(() => window.__engine.segIndex)) === before + 1);
+  check("操作しても字幕に重なる表示を出さない", await page.evaluate(() => ![...document.querySelectorAll("#stage *")]
+    .some((el) => !["subtitle", "spoken", "pausedMark"].includes(el.id) && !el.closest("#subtitle, #spoken") && el.getBoundingClientRect().height > 0)));
   await swipe(150);
   check("右スワイプで前の文", (await page.evaluate(() => window.__engine.segIndex)) === before);
   await waitFor(page, () => window.__engine.stepIndex >= 2);

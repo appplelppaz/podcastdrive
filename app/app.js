@@ -473,21 +473,14 @@ function show(name) {
 
 // ---------------------------------------------------------------- 操作（ジェスチャー・キーボード）
 
-let flashTimer = null;
-function flash(text) {
-  const f = $("flash");
-  f.textContent = text;
-  f.classList.add("show");
-  clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => f.classList.remove("show"), 700);
-  if (navigator.vibrate) navigator.vibrate(10);
-}
+// 操作したことは軽い振動だけで伝える（字幕を隠す表示は出さない）
+const tick = () => { if (navigator.vibrate) navigator.vibrate(10); };
 
 const actions = {
-  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); flash(was ? "Ⅱ Paused" : "▶ Playing"); },
-  next() { if (!engine) return; engine.next(); flash("Next ›"); },
-  previous() { if (!engine) return; engine.previous(); flash("‹ Previous"); },
-  restart() { if (!engine) return; engine.restart(); flash("↺ Restart"); },
+  toggle() { if (!engine) return; const was = engine.playing; if (!was) unlockSpeech(); engine.toggle(); tick(); },
+  next() { if (!engine) return; engine.next(); tick(); },
+  previous() { if (!engine) return; engine.previous(); tick(); },
+  restart() { if (!engine) return; engine.restart(); tick(); },
 };
 
 $("back").onclick = () => {
