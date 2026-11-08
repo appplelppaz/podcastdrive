@@ -405,6 +405,30 @@ async function openMaterial(page, title, button) {
   check("元音声の終わり際の停止では止まらず訳へ進む", endPause.playing && endPause.logged, JSON.stringify(endPause));
   await page.click("#back");
 
+  // ---- エピソードを消す: 一覧のカードと、エピソード画面の上の「Delete」から。確認で「キャンセル」なら消さない
+  await waitFor(page, () => !document.getElementById("home").hidden && document.querySelectorAll("#library li").length >= 2);
+  const lib0 = await page.$$eval("#library li", (lis) => lis.map((li) => li.dataset.id));
+  page.once("dialog", (d) => d.dismiss());
+  await page.locator(`#library li[data-id="${lib0[0]}"] .delete`).click();
+  await sleep(300);
+  check("削除の確認でキャンセルすると消さない", (await page.$$eval("#library li", (lis) => lis.length)) === lib0.length);
+  let asked = "";
+  page.once("dialog", (d) => { asked = d.message(); d.accept(); });
+  await page.locator(`#library li[data-id="${lib0[0]}"] .delete`).click();
+  await waitFor(page, (n) => document.querySelectorAll("#library li").length === n, lib0.length - 1);
+  check("一覧のカードの「Delete」でエピソードを消す", /^Delete “/.test(asked) &&
+    await page.evaluate((id) => !document.querySelector(`#library li[data-id="${id}"]`) && localStorage.getItem("listening.pos." + id) === null, lib0[0]), asked);
+  await page.locator(`#library li[data-id="${lib0[1]}"] .pick`).click();
+  await page.waitForSelector("#episode:not([hidden]) #sentences li");
+  check("エピソード画面の「Delete」は文の一覧より上にある", await page.evaluate(() => {
+    const d = document.getElementById("epDelete").getBoundingClientRect(), l = document.getElementById("sentences").getBoundingClientRect();
+    return d.height > 0 && d.bottom <= l.top && d.bottom <= innerHeight;
+  }));
+  page.once("dialog", (d) => d.accept());
+  await page.click("#epDelete");
+  await waitFor(page, (id) => !document.getElementById("home").hidden && !document.querySelector(`#library li[data-id="${id}"]`), lib0[1]);
+  check("エピソード画面から消すと一覧に戻る", true);
+
   // ---- アプリ本体が読めないとき（古い Safari の構文エラーなど）は理由を画面に出す
   const bctx = await browser.newContext({ serviceWorkers: "block" }); // Service Worker 経由だと差し替えが効かない
   const broken = await bctx.newPage();

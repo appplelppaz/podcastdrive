@@ -141,6 +141,7 @@ async function renderLibrary() {
       add("Play", "start", () => open(row.id, "start"));
     }
     add("Sentences", "outline pick", () => openEpisode(row.id));
+    add("Delete", "outline delete", () => removeEpisode(row));
     ul.append(li);
   }
 }
@@ -182,7 +183,7 @@ function openEpisode(id) {
   $("epNotes").innerHTML = "";
   for (const n of notesOf(row)) $("epNotes").append(Object.assign(document.createElement("p"), { className: "note", textContent: n }));
   const actions = $("epActions");
-  actions.innerHTML = "";
+  actions.replaceChildren();
   const add = (label, cls, fn) => {
     const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
     b.onclick = fn;
@@ -190,6 +191,7 @@ function openEpisode(id) {
   };
   if (at > 0) add("Continue", "start resume", () => open(id, "resume"));
   add(at > 0 ? "Restart" : "Play", at > 0 ? "outline from-start" : "start", () => open(id, "start"));
+  actions.append(epDelete);
   const ol = $("sentences");
   ol.innerHTML = "";
   const lang = row.doc.sourceLanguage || "";
@@ -215,13 +217,17 @@ function openEpisode(id) {
   else window.scrollTo(0, 0);
 }
 
-$("epDelete").onclick = async () => {
-  const row = rowsById.get(episodeId);
+// エピソードを消す（音声・字幕・再生位置も）。確認してから
+async function removeEpisode(row) {
   if (!row || !confirm(`Delete “${row.title}”?`)) return;
+  if (engine && current && current.id === row.id) { engine.pause(); engine = null; current = null; }
   await store.deleteMaterial(row.id);
-  episodeId = null;
+  store.forgetMaterial(row.id);
+  if (episodeId === row.id) { episodeId = null; if (SPLIT) rightPane = null; }
   show("home");
-};
+}
+const epDelete = $("epDelete");
+epDelete.onclick = () => removeEpisode(rowsById.get(episodeId));
 $("episodeBack").onclick = () => show("home");
 $("openSettings").onclick = () => show("settings");
 $("settingsBack").onclick = () => {
