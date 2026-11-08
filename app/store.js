@@ -282,6 +282,14 @@ export function savePosition(id, pos) {
   try { localStorage.setItem("listening.pos." + id, JSON.stringify({ ...pos, savedAt: Date.now() })); } catch { /* 同上 */ }
 }
 
+// 消した教材の再生位置と「最後に聞いた教材」を消す
+export function forgetMaterial(id) {
+  try {
+    localStorage.removeItem("listening.pos." + id);
+    if (localStorage.getItem("listening.last") === id) localStorage.removeItem("listening.last");
+  } catch { /* 同上 */ }
+}
+
 export function lastMaterialId() {
   try { return localStorage.getItem("listening.last"); } catch { return null; }
 }

@@ -78,7 +78,7 @@ code { font-family: inherit; font-weight: 700; }
 .library .note { color: var(--alarm); font-size: 15px; margin-top: 4px; }
 .library .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
 .library .actions .start { margin-right: 4px; }
-.library .delete { margin-left: auto; color: var(--alarm); }
+.library .delete, .ep-actions .delete { margin-left: auto; color: var(--alarm); }
 
 .icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
   background: var(--panel); color: var(--lamp); font: inherit; font-size: 30px; line-height: 1; cursor: pointer; }
