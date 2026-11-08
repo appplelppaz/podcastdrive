@@ -12,6 +12,10 @@ const check = (name, cond, info = "") => {
   console.log(cond ? "OK " : "NG ", name, info);
 };
 const waitFor = (page, fn, arg, timeout = 60000) => page.waitForFunction(fn, arg, { timeout, polling: 50 });
+const oneRow = (pg) => pg.evaluate(() => [...document.querySelectorAll("#library li .actions")].map((a) => {
+  const bs = [...a.children].map((b) => b.getBoundingClientRect()), card = a.closest("li").getBoundingClientRect();
+  return bs.every((r) => Math.abs(r.top + r.height / 2 - (bs[0].top + bs[0].height / 2)) < 2) && bs.every((r) => r.right <= card.right - 8);
+}).every(Boolean));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ascii = (n) => path.join(DIR, "ascii", n);
 
@@ -235,6 +239,11 @@ async function openMaterial(page, title, button) {
   const hero = await page.evaluate(() => ({ shown: !document.getElementById("hero").hidden, line: document.getElementById("heroLine").textContent }));
   check("ホームの続きからに止めた文を表示", hero.shown && hero.line.length > 0, hero.line);
   await page.screenshot({ path: path.join(DIR, "setup-390.png"), fullPage: true });
+  check("一覧のカードの操作（消すも含む）は1行に収まる", await oneRow(page));
+  await page.setViewportSize({ width: 360, height: 780 });
+  check("幅360でも1行に収まる", await oneRow(page));
+  await page.screenshot({ path: path.join(DIR, "setup-360.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
   check("画面の幅からはみ出さない", await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
   await page.emulateMedia({ colorScheme: "dark" }); // 暗い画面（夜の運転）の見た目も残す
   await page.screenshot({ path: path.join(DIR, "setup-390-dark.png"), fullPage: true });
@@ -249,7 +258,7 @@ async function openMaterial(page, title, button) {
   await page.click("#back");
 
   // ---- 文を選んで再生（エピソード画面）と設定の画面
-  await page.locator("#library li", { hasText: titleA }).locator(".pick").click();
+  await page.locator("#library li", { hasText: titleA }).locator(".card-open").click();
   await page.waitForSelector("#sentences li");
   const rows = await page.locator("#sentences li").count();
   check("エピソード画面に文の一覧", rows === 4, String(rows));
@@ -276,6 +285,7 @@ async function openMaterial(page, title, button) {
   });
   check("iPad: 一覧とエピソードを左右に並べる", split.side && !split.overflow, JSON.stringify(split));
   await ipad.screenshot({ path: path.join(DIR, "ipad-1180.png") });
+  check("iPad: 一覧のカードの操作は1行に収まる", await oneRow(ipad));
   await ipad.click("#openSettings");
   check("iPad: 設定は右に出て一覧は残る", await ipad.isVisible("#originalRate") && await ipad.isVisible("#library"));
   await ipad.click("#settingsBack");
@@ -418,7 +428,7 @@ async function openMaterial(page, title, button) {
   await waitFor(page, (n) => document.querySelectorAll("#library li").length === n, lib0.length - 1);
   check("一覧のカードの「Delete」でエピソードを消す", /^Delete “/.test(asked) &&
     await page.evaluate((id) => !document.querySelector(`#library li[data-id="${id}"]`) && localStorage.getItem("listening.pos." + id) === null, lib0[0]), asked);
-  await page.locator(`#library li[data-id="${lib0[1]}"] .pick`).click();
+  await page.locator(`#library li[data-id="${lib0[1]}"] .card-open`).click();
   await page.waitForSelector("#episode:not([hidden]) #sentences li");
   check("エピソード画面の「Delete」は文の一覧より上にある", await page.evaluate(() => {
     const d = document.getElementById("epDelete").getBoundingClientRect(), l = document.getElementById("sentences").getBoundingClientRect();

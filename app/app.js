@@ -140,8 +140,8 @@ async function renderLibrary() {
     } else {
       add("Play", "start", () => open(row.id, "start"));
     }
-    add("Sentences", "outline pick", () => openEpisode(row.id));
-    add("Delete", "outline delete", () => removeEpisode(row));
+    // 文の一覧はカードの題名をタップして開く（同じ行に「消す」を収めるため、ボタンは置かない）
+    actions.append(deleteButton(() => removeEpisode(row)));
     ul.append(li);
   }
 }
@@ -215,6 +215,15 @@ function openEpisode(id) {
   if (here) here.scrollIntoView({ block: "center" });
   else if (SPLIT) $("episode").scrollTop = 0;
   else window.scrollTo(0, 0);
+}
+
+// 消すボタン: Continue などと同じ行に収まるよう、ごみ箱の印だけにする
+function deleteButton(fn) {
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "icon-del delete" });
+  b.setAttribute("aria-label", "Delete");
+  b.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`;
+  b.onclick = fn;
+  return b;
 }
 
 // エピソードを消す（音声・字幕・再生位置も）。確認してから

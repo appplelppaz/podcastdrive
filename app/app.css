@@ -76,9 +76,12 @@ code { font-family: inherit; font-weight: 700; }
 .library .track { margin: 12px 0 6px; }
 .library .meta { color: var(--haze); font-size: 15px; margin-top: 6px; }
 .library .note { color: var(--alarm); font-size: 15px; margin-top: 4px; }
-.library .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
+.library .actions { display: flex; align-items: center; gap: 2px; margin-top: 10px; }
 .library .actions .start { margin-right: 4px; }
-.library .delete, .ep-actions .delete { margin-left: auto; color: var(--alarm); }
+/* 消す: ごみ箱の印だけ。同じ行の右端に、控えめに */
+.icon-del { flex: none; width: 44px; height: 44px; margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 22px; background: none; color: var(--haze); cursor: pointer; }
+.icon-del:hover, .icon-del:focus-visible { color: var(--alarm); }
 
 .icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 22px;
   background: var(--panel); color: var(--lamp); font: inherit; font-size: 30px; line-height: 1; cursor: pointer; }
