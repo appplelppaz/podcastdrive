@@ -1,4 +1,4 @@
-import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, unlockSpeech } from "./engine.js";
+import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, pickVoice, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 import { alignSubtitle } from "./subtitle.js";
 import { langBase, tidySpeech } from "./material.js";
@@ -14,7 +14,24 @@ const SPLIT = document.documentElement.classList.contains("split");
 
 // ---------------------------------------------------------------- 設定
 
+// 訳・説明を読む声。端末に入っている日本語の声から選べる（高品質の声は iOS の設定で追加する）
+const VOICE_LANG = "ja";
+const voiceQuality = (v) => (/premium|プレミアム/i.test(v.name) ? 2 : /enhanced|拡張|高品質/i.test(v.name) ? 1 : 0);
+function fillVoices() {
+  const sel = $("voice");
+  const synth = window.speechSynthesis;
+  const voices = (synth ? synth.getVoices() : []).filter((v) => langBase(v.lang.replace("_", "-")) === VOICE_LANG)
+    .sort((a, b) => voiceQuality(b) - voiceQuality(a) || a.name.localeCompare(b.name));
+  const auto = pickVoice(VOICE_LANG);
+  sel.replaceChildren(new Option(auto ? `Auto (${auto.name})` : "Auto", ""), ...voices.map((v) => new Option(v.name, v.voiceURI)));
+  sel.value = voices.some((v) => v.voiceURI === settings.voice) ? settings.voice : "";
+}
+if (window.speechSynthesis && window.speechSynthesis.addEventListener) {
+  window.speechSynthesis.addEventListener("voiceschanged", () => { if (!$("settingsScreen").hidden) fillVoices(); });
+}
+
 function renderSettings() {
+  fillVoices();
   for (const el of document.querySelectorAll("[data-key]")) {
     const k = el.dataset.key;
     if (el.classList.contains("stepper")) {
@@ -27,6 +44,8 @@ function renderSettings() {
       el.querySelector(".value").textContent = settings[k] + (el.dataset.unit || "");
     } else if (el.type === "checkbox") {
       el.checked = !!settings[k];
+    } else if (k === "voice") {
+      // fillVoices で選んである（端末にない声は Auto に戻る）
     } else {
       el.value = settings[k];
     }
@@ -58,6 +77,18 @@ $("resetSettings").onclick = () => {
   if (engine) engine.updateSettings(settings);
   renderSettings();
 };
+$("testVoice").onclick = () => {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  if (engine && engine.playing) engine.pause();
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance("この声で、訳と解説を読み上げます。");
+  const v = pickVoice(VOICE_LANG, synth.getVoices(), settings.voice);
+  u.lang = v ? v.lang.replace("_", "-") : "ja-JP";
+  if (v) u.voice = v;
+  u.rate = settings.translationRate;
+  synth.speak(u);
+};
 $("exportSettings").onclick = () => {
   const blob = new Blob([JSON.stringify(settings, null, 1)], { type: "application/json" });
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "listening-settings.json" });
@@ -67,6 +98,7 @@ $("exportSettings").onclick = () => {
 
 // ---------------------------------------------------------------- 教材一覧（教材ごとの再生履歴）
 
+const PLAY_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.2v13.6a1 1 0 0 0 1.5.9l11-6.8a1 1 0 0 0 0-1.8l-11-6.8A1 1 0 0 0 8 5.2z"/></svg>`;
 const LANG_NAMES = { zh: "Chinese", en: "English", es: "Spanish", fr: "French" };
 const langOf = (row) => langBase((row.doc && row.doc.sourceLanguage) || "");
 const langName = (code) => LANG_NAMES[code] || (code ? code.toUpperCase() : "Other");
@@ -119,29 +151,24 @@ async function renderLibrary() {
     const li = document.createElement("li");
     li.dataset.id = row.id;
     if (SPLIT && row.id === episodeId) li.classList.add("selected");
-    li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"><span class="lang-tag"></span><span class="ch"></span></span></button>` +
-      `<div class="track" aria-hidden="true"><span></span></div><div class="meta"></div><div class="actions"></div>`;
+    // 1行: 題名（タップで文の一覧）・消す・再生。行の下の線が、聞いたところまで琥珀色になる
+    li.innerHTML = `<button type="button" class="card-open"><span class="name"></span><span class="channel"><span class="lang-tag"></span><span class="ch"></span><span class="meta"></span></span></button>` +
+      `<div class="actions"></div><div class="track" aria-hidden="true"><span></span></div>`;
     li.querySelector(".name").textContent = row.title;
     li.querySelector(".lang-tag").textContent = langs.length > 1 && !langFilter ? langName(langOf(row)) : "";
     li.querySelector(".ch").textContent = row.channel || "";
     li.querySelector(".card-open").onclick = () => openEpisode(row.id);
     li.querySelector(".track span").style.width = (progressOf(row, pos) * 100).toFixed(1) + "%";
     li.querySelector(".meta").textContent = historyText(row, pos);
-    for (const n of notesOf(row)) li.querySelector(".actions").before(Object.assign(document.createElement("div"), { className: "note", textContent: n }));
+    for (const n of notesOf(row)) li.querySelector(".card-open").append(Object.assign(document.createElement("span"), { className: "note", textContent: n }));
     const actions = li.querySelector(".actions");
-    const add = (label, cls, fn) => {
-      const b = Object.assign(document.createElement("button"), { type: "button", className: "button " + cls, textContent: label });
-      b.onclick = fn;
-      actions.append(b);
-    };
-    if (resumable) {
-      add("Continue", "start resume", () => open(row.id, "resume"));
-      add("Restart", "outline from-start", () => open(row.id, "start"));
-    } else {
-      add("Play", "start", () => open(row.id, "start"));
-    }
-    // 文の一覧はカードの題名をタップして開く（同じ行に「消す」を収めるため、ボタンは置かない）
     actions.append(deleteButton(() => removeEpisode(row)));
+    // 続きがあれば続きから、なければ最初から。最初からやり直すのはエピソードの画面で
+    const play = Object.assign(document.createElement("button"), { type: "button", className: "play start" + (resumable ? " resume" : "") });
+    play.setAttribute("aria-label", resumable ? "Continue" : "Play");
+    play.innerHTML = PLAY_ICON;
+    play.onclick = () => open(row.id, resumable ? "resume" : "start");
+    actions.append(play);
     ul.append(li);
   }
 }
@@ -229,7 +256,7 @@ function deleteButton(fn) {
 // エピソードを消す（音声・字幕・再生位置も）。確認してから
 async function removeEpisode(row) {
   if (!row || !confirm(`Delete “${row.title}”?`)) return;
-  if (engine && current && current.id === row.id) { engine.pause(); engine = null; current = null; }
+  if (engine && current && current.id === row.id) { engine.pause(); engine.destroy(); engine = null; current = null; finishedNow = false; }
   await store.deleteMaterial(row.id);
   store.forgetMaterial(row.id);
   if (episodeId === row.id) { episodeId = null; if (SPLIT) rightPane = null; }
@@ -244,7 +271,9 @@ $("settingsBack").onclick = () => {
   show("home");
 };
 
+let importing = false;
 $("fileInput").addEventListener("change", async (e) => {
+  importing = true;
   const status = $("importStatus");
   status.className = "status";
   status.textContent = "Adding…";
@@ -258,13 +287,16 @@ $("fileInput").addEventListener("change", async (e) => {
     status.textContent = err.message;
   }
   e.target.value = "";
+  importing = false;
   renderLibrary();
 });
 
 // ---------------------------------------------------------------- 再生画面
 
+// 最後まで聞き終えた後は、次に再生が始まるまで「聞き終えた」を上書きしない
+let finishedNow = false;
 function savePos(extra = {}) {
-  if (!engine || !current) return;
+  if (!engine || !current || finishedNow) return;
   store.savePosition(current.id, { segIndex: engine.segIndex, segId: engine.segment.id, total: engine.doc.segments.length, finished: false, ...extra });
 }
 
@@ -293,12 +325,21 @@ function unlockAudio() {
   if (p) p.catch(() => { /* 許可されなければ、再生ボタンのタップで始める */ });
 }
 
+function closeEngine() {
+  if (!engine) return;
+  engine.pause();
+  savePos();
+  engine.destroy();
+  engine = null;
+  finishedNow = false;
+}
+
 let opening = 0;
 function open(id, how, index = 0) {
   const row = rowsById.get(id);
   if (!row) return;
   const token = ++opening;
-  if (engine) { engine.pause(); engine = null; }
+  closeEngine();
   unlockSpeech();
   unlockAudio();
   current = row;
@@ -333,7 +374,9 @@ function start(row, audio, how, index = 0) {
   engine.addEventListener("state", renderPlayer);
   engine.addEventListener("step", renderPlayer);
   engine.addEventListener("position", () => { savePos(); updateMediaSession(); });
+  engine.addEventListener("step", () => { finishedNow = false; });
   engine.addEventListener("finished", () => {
+    finishedNow = true;
     store.savePosition(current.id, { segIndex: 0, segId: row.doc.segments[0].id, total: row.doc.segments.length, finished: true });
     setStatus("Finished", false, true);
   });
@@ -464,7 +507,6 @@ function renderPlayer() {
   }
   $("player").classList.toggle("paused", !s.playing);
   if (s.playing && statusUntilPlay) setStatus("");
-  if ("mediaSession" in navigator) navigator.mediaSession.playbackState = s.playing ? "playing" : "paused";
   updateWakeLock();
 }
 
@@ -609,10 +651,11 @@ window.addEventListener("pagehide", () => savePos());
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   const reg = navigator.serviceWorker.register("sw.js").catch(() => null); // オフライン化できなくても使える
   // ホーム画面のアプリは閉じずに戻ってくることが多いので、戻ったときに新しい版を確かめ、
-  // 入れ替わったら再生していないときに読み直す（再生中なら止めたとき・一覧に戻ったときに）
+  // 入れ替わったら、一覧に戻っているときに読み直す
   const hadController = !!navigator.serviceWorker.controller;
   let updateReady = false;
-  const reloadIfIdle = () => { if (updateReady && !(engine && engine.playing)) { savePos(); location.reload(); } };
+  // 再生画面を開いている間（止めていても）と、取り込みの最中は読み直さない
+  const reloadIfIdle = () => { if (updateReady && $("player").hidden && !importing) { savePos(); location.reload(); } };
   navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) { updateReady = true; reloadIfIdle(); } });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") reg.then((r) => r && r.update()).catch(() => {});

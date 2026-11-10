@@ -90,25 +90,23 @@
     <p class="hero-where"><span id="heroLang" class="lang-tag"></span><span id="heroChannel"></span></p>
     <h2 id="heroTitle" class="hero-title"></h2>
     <p id="heroLine" class="hero-line"></p>
-    <div class="track" aria-hidden="true"><span id="heroTrack"></span></div>
-    <p id="heroMeta" class="hero-meta"></p>
     <div class="hero-actions">
       <button id="heroPlay" class="button" type="button">Continue</button>
       <button id="heroPick" class="button outline" type="button">Sentences</button>
+      <p id="heroMeta" class="hero-meta"></p>
     </div>
+    <div class="track" aria-hidden="true"><span id="heroTrack"></span></div>
   </section>
 
   <section aria-labelledby="libraryTitle">
-    <h2 id="libraryTitle">Episodes</h2>
+    <div class="section-head">
+      <h2 id="libraryTitle">Episodes</h2>
+      <label class="add">Add<input id="fileInput" type="file" multiple></label>
+    </div>
     <div id="langTabs" class="tabs" role="tablist" hidden></div>
-    <ul id="library" class="library"></ul>
-    <p id="libraryEmpty" class="hint">No episodes yet.</p>
-    <label class="button file">
-      Add episodes
-      <input id="fileInput" type="file" multiple>
-    </label>
-    <p class="hint">Select <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together.</p>
     <p id="importStatus" class="status" role="status"></p>
+    <ul id="library" class="library"></ul>
+    <p id="libraryEmpty" class="hint">No episodes yet. Add <code>.mp3</code>, <code>.json</code> and <code>.ttml</code> together.</p>
   </section>
 </main>
 
@@ -116,11 +114,10 @@
   <header class="bar"><button id="episodeBack" class="icon-btn back-btn" type="button" aria-label="Back">‹</button></header>
   <p class="hero-where"><span id="epLang" class="lang-tag"></span><span id="epChannel"></span></p>
   <h1 id="epTitle" class="ep-title"></h1>
-  <div class="track" aria-hidden="true"><span id="epTrack"></span></div>
   <p id="epMeta" class="ep-meta"></p>
   <div id="epNotes"></div>
   <div id="epActions" class="ep-actions"><button id="epDelete" class="icon-del delete" type="button" aria-label="Delete"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>
-  <h2>Sentences</h2>
+  <div class="track" aria-hidden="true"><span id="epTrack"></span></div>
   <ol id="sentences" class="sentences"></ol>
 </main>
 
@@ -130,7 +127,7 @@
   <header class="bar"><button id="settingsBack" class="icon-btn back-btn" type="button" aria-label="Back">‹</button></header>
   <h1>Settings</h1>
   <div class="settings">
-      <h3>Original</h3>
+      <h3>Playback</h3>
       <div class="row"><span>Before notes</span><span class="stepper" data-key="firstRepeats" data-step="1" data-unit="×"></span></div>
       <div class="row"><span>After notes</span><span class="stepper" data-key="secondRepeats" data-step="1" data-unit="×"></span></div>
       <div class="row slider"><label for="originalRate">Original speed <output data-for="originalRate"></output></label>
@@ -148,6 +145,11 @@
       <div class="row"><label for="grammar">Grammar</label><input id="grammar" data-key="grammar" type="checkbox" class="switch"></div>
       <div class="row"><label for="cues">Cues</label><input id="cues" data-key="cues" type="checkbox" class="switch"></div>
 
+      <h3>Voice</h3>
+      <div class="row"><label for="voice">Japanese</label>
+        <span class="voice-pick"><select id="voice" data-key="voice"></select><button id="testVoice" class="link" type="button">Test</button></span></div>
+      <p class="hint">Add voices in iOS Settings › Accessibility.</p>
+
       <h3>Device</h3>
       <div class="row"><label for="repeatEpisode">Repeat episode</label><input id="repeatEpisode" data-key="repeatEpisode" type="checkbox" class="switch"></div>
       <div class="row"><label for="keepAwake">Keep screen on</label><input id="keepAwake" data-key="keepAwake" type="checkbox" class="switch"></div>
@@ -162,10 +164,8 @@
       </div>
     </div>
 
-  <section class="help" aria-labelledby="helpTitle">
-    <h2 id="helpTitle">Gestures</h2>
-    <p class="hint">Tap: pause. Swipe left: next. Swipe right: back. Hold: restart.</p>
-  </section>
+  <h3>Gestures</h3>
+  <p class="hint">Tap: pause. Swipe left: next. Swipe right: back. Hold: restart.</p>
 </main>
 
 <main id="player" class="screen player" hidden>
