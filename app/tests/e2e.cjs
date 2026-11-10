@@ -14,7 +14,7 @@ const check = (name, cond, info = "") => {
 const waitFor = (page, fn, arg, timeout = 60000) => page.waitForFunction(fn, arg, { timeout, polling: 50 });
 const oneRow = (pg) => pg.evaluate(() => [...document.querySelectorAll("#library li .actions")].map((a) => {
   const bs = [...a.children].map((b) => b.getBoundingClientRect()), card = a.closest("li").getBoundingClientRect();
-  return bs.every((r) => Math.abs(r.top + r.height / 2 - (bs[0].top + bs[0].height / 2)) < 2) && bs.every((r) => r.right <= card.right - 8);
+  return bs.every((r) => Math.abs(r.top + r.height / 2 - (bs[0].top + bs[0].height / 2)) < 2) && bs.every((r) => r.right <= card.right + 0.5) && a.closest("li").scrollWidth <= a.closest("li").clientWidth;
 }).every(Boolean));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ascii = (n) => path.join(DIR, "ascii", n);
@@ -24,10 +24,10 @@ function mockSpeech() {
   window.__speech = [];
   let cur = null, timer = null;
   const voices = [
-    { name: "Kyoko", lang: "ja-JP", localService: true },
-    { name: "Kyoko (Enhanced)", lang: "ja-JP", localService: true },
-    { name: "Alex", lang: "en-US", localService: true },
-    { name: "Samantha", lang: "en-US", localService: true },
+    { name: "Kyoko", lang: "ja-JP", localService: true, voiceURI: "ja.kyoko" },
+    { name: "Kyoko (Enhanced)", lang: "ja-JP", localService: true, voiceURI: "ja.kyoko.enhanced" },
+    { name: "Alex", lang: "en-US", localService: true, voiceURI: "en.alex" },
+    { name: "Samantha", lang: "en-US", localService: true, voiceURI: "en.samantha" },
   ];
   const synth = {
     speaking: false,
@@ -56,6 +56,14 @@ function mockSpeech() {
 async function openMaterial(page, title, button) {
   await page.evaluate(() => { window.__old = window.__engine; });
   await page.locator("#library li", { hasText: title }).locator(button).click();
+  await waitFor(page, () => window.__engine && window.__engine !== window.__old && window.__engine.log.length > 0);
+}
+
+// エピソードの画面から、最初の文から再生する
+async function openFromStart(page, title) {
+  await page.evaluate(() => { window.__old = window.__engine; });
+  await page.locator("#library li", { hasText: title }).locator(".card-open").click();
+  await page.locator("#episode:not([hidden]) #epActions").locator(".from-start, .start:not(.resume)").click();
   await waitFor(page, () => window.__engine && window.__engine !== window.__old && window.__engine.log.length > 0);
 }
 
@@ -272,6 +280,28 @@ async function openMaterial(page, title, button) {
   await page.click("#openSettings");
   check("設定は別の画面", await page.isVisible("#originalRate") && !(await page.isVisible("#library")));
   await page.screenshot({ path: path.join(DIR, "settings-390.png"), fullPage: true });
+  // ---- 読み上げの声を選ぶ（端末の日本語の声）。既定は高品質の声
+  const voiceOpts = await page.$$eval("#voice option", (os) => os.map((o) => o.textContent));
+  check("設定に端末の日本語の声を並べる", voiceOpts[0] === "Auto (Kyoko (Enhanced))" && voiceOpts.includes("Kyoko") && !voiceOpts.includes("Alex"), JSON.stringify(voiceOpts));
+  await page.selectOption("#voice", "ja.kyoko");
+  await page.click("#testVoice");
+  const tested = await page.evaluate(() => window.__speech.at(-1));
+  check("Test で選んだ声を試せる", tested.voice === "Kyoko" && tested.lang === "ja-JP", JSON.stringify(tested));
+  await sleep(400);
+  await page.click("#settingsBack");
+  await openFromStart(page, titleA);
+  const nv = await page.evaluate(() => window.__speech.length);
+  await waitFor(page, (n) => window.__speech.slice(n).some((x) => x.lang.startsWith("ja") && x.text.trim()), nv);
+  const used = await page.evaluate((n) => window.__speech.slice(n).filter((x) => x.text.trim()), nv);
+  check("選んだ声で訳を読む（原語の声は変えない）", used.filter((x) => x.lang.startsWith("ja")).every((x) => x.voice === "Kyoko") && used.every((x) => !x.lang.startsWith("en") || x.voice !== "Kyoko"), JSON.stringify(used.map((x) => [x.lang, x.voice])));
+  // ---- 最後まで聞き終えたら、戻っても「Finished」のまま
+  await page.evaluate(() => { const e = window.__engine; e.goto(e.doc.segments.length - 1, { stage: -1 }); });
+  await waitFor(page, () => !window.__engine.playing && /Finished/.test(document.getElementById("playerStatus").textContent));
+  await page.click("#back");
+  const fin = await waitFor(page, (t) => [...document.querySelectorAll("#library li")].some((li) => li.textContent.includes(t) && /Finished/.test(li.querySelector(".meta").textContent)), titleA, 4000).then(() => true, () => false);
+  check("聞き終えた回は戻っても Finished のまま", fin);
+  await page.click("#openSettings");
+  await page.selectOption("#voice", "");
   await page.click("#settingsBack");
 
   // ---- iPad 版（?layout=ipad。本番は /ipad/）: 一覧とエピソードを左右に並べる
@@ -378,7 +408,7 @@ async function openMaterial(page, title, button) {
   await page.click("#back");
 
   // ---- 元音声と読み上げの切り替え直後に iPhone が送ってくる停止では止まらない。それ以外の停止は中断
-  await openMaterial(page, titleB, ".from-start");
+  await openFromStart(page, titleB);
   await waitFor(page, () => window.__engine.step.kind === "original" && !document.getElementById("audio").paused);
   await page.evaluate(() => document.getElementById("audio").pause()); // 切り替え直後の停止（iPhone の動きの代わり）
   await sleep(600);
@@ -401,7 +431,7 @@ async function openMaterial(page, title, button) {
   await page.click("#back");
 
   // ---- 元音声の終わり際に iPhone が止めても、一時停止にならず訳へ進む
-  await openMaterial(page, titleB, ".from-start, .start:not(.resume)");
+  await openFromStart(page, titleB);
   await waitFor(page, () => window.__engine.step.kind === "original" && !document.getElementById("audio").paused &&
     performance.now() - window.__engine.stepStartedAt > 400);
   await page.evaluate(() => new Promise((resolve) => {

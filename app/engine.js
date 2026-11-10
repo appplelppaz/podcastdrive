@@ -25,6 +25,7 @@ export const DEFAULTS = {
   repeatEpisode: false,
   carPrevious: "previous", // 車・ロック画面の「前へ」: previous（前の文）/ restart（今の文を最初から）
   keepAwake: true,         // 再生中は画面を消さない（アプリ側で使う）
+  voice: "",               // 訳・説明を読む声（voiceURI）。空なら端末の声から自動で選ぶ
 };
 
 export const LIMITS = {
@@ -43,6 +44,7 @@ export function clampSettings(s) {
     const v = Number(out[k]);
     out[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : DEFAULTS[k];
   }
+  out.voice = typeof out.voice === "string" ? out.voice : "";
   out.firstRepeats = Math.round(out.firstRepeats);
   out.secondRepeats = Math.round(out.secondRepeats);
   return out;
@@ -173,14 +175,18 @@ const PREFERRED_VOICES = {
   de: ["Anna", "Petra"], it: ["Alice", "Federica"], ko: ["Yuna"],
 };
 
-export function pickVoice(lang, voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : []) {
+// chosen: 設定で選んだ声（voiceURI）。その言語の声なら優先する
+export function pickVoice(lang, voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [], chosen = "") {
   const base = (lang || "").split(/[-_]/)[0].toLowerCase();
   const cands = voices.filter((v) => v.lang.replace("_", "-").toLowerCase().split("-")[0] === base);
   if (!cands.length) return null;
+  const picked = chosen && cands.find((v) => v.voiceURI === chosen);
+  if (picked) return picked;
   const preferred = PREFERRED_VOICES[base] || [];
   const score = (v) => {
     let s = 0;
-    if (/enhanced|premium|拡張|高品質/i.test(v.name)) s += 20;
+    if (/premium|プレミアム/i.test(v.name)) s += 30;
+    else if (/enhanced|拡張|高品質/i.test(v.name)) s += 20;
     const i = preferred.findIndex((p) => v.name.includes(p));
     if (i >= 0) s += 10 - i;
     if (v.lang.replace("_", "-").toLowerCase() === (LOCALES[base] || "").toLowerCase()) s += 2;
@@ -191,7 +197,7 @@ export function pickVoice(lang, voices = window.speechSynthesis ? window.speechS
 }
 
 // onWord(i): 読み上げ中の単語の先頭の文字位置（続きから読み直すのに使う）
-function speakWithSynthesis(text, lang, rate, onWord) {
+function speakWithSynthesis(text, lang, rate, onWord, chosen = "") {
   const synth = window.speechSynthesis;
   let finishNow = null;
   return {
@@ -200,7 +206,7 @@ function speakWithSynthesis(text, lang, rate, onWord) {
       const u = new SpeechSynthesisUtterance(text);
       const base = (lang || "").split(/[-_]/)[0].toLowerCase();
       u.lang = LOCALES[base] || lang;
-      const v = pickVoice(lang);
+      const v = pickVoice(lang, synth.getVoices(), chosen);
       if (v) {
         try { u.voice = v; u.lang = v.lang.replace("_", "-"); } catch { /* 声を選べなければ言語の既定の声で読む */ }
       }
@@ -255,7 +261,14 @@ export class ListeningEngine extends EventTarget {
     this.speechAt = 0;     // 今の読み上げで読んでいる単語の文字位置
     this.clips = (doc.audio && doc.audio.clips) || {};
     this.silence = this.clips.silence;
-    el.addEventListener("pause", () => this.onElementPause());
+    this.onPause = () => this.onElementPause();
+    el.addEventListener("pause", this.onPause);
+  }
+
+  // 別の教材を開くときに呼ぶ（同じ <audio> に古いエンジンの監視を残さない）
+  destroy() {
+    if (this.playing) this.halt();
+    this.el.removeEventListener("pause", this.onPause);
   }
 
   get segment() { return this.doc.segments[this.segIndex]; }
@@ -502,7 +515,7 @@ export class ListeningEngine extends EventTarget {
     const start = from || 0;
     this.speechAt = start;
     const sp = speakWithSynthesis(step.text.slice(start), step.lang, step.rate,
-      (i) => { if (this.speech === sp) this.speechAt = start + i; });
+      (i) => { if (this.speech === sp) this.speechAt = start + i; }, this.settings.voice);
     this.speech = sp;
     const r = await sp.promise;
     if (token !== this.token) return "cancel";
