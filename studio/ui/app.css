@@ -37,6 +37,9 @@ code { font-family: inherit; font-weight: 700; }
 .track span { display: block; height: 100%; width: 0; background: var(--dial); transition: width .3s; }
 .episodes label { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; cursor: pointer; }
 .episodes input[type=checkbox] { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--dial); }
+input[type=search] { font: inherit; width: 220px; min-height: 40px; padding: 0 12px; background: var(--night); color: var(--lamp);
+  border: 1px solid var(--rule); border-radius: 20px; }
+#more { display: block; margin-top: 6px; }
 .hint.error { color: var(--alarm); }
 .hint.error:empty { display: none; }
 .log { margin: 10px 0 0; min-height: 1.5em; color: var(--haze); font-size: 15px; white-space: pre-line; }

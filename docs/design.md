@@ -97,7 +97,7 @@ URL は `https://podcastdrive-app.vercel.app/ipad/`（`vercel.json` の書き換
 
 - 題材・使う人: Mac の前で、音声と字幕を置いて教材を作る持ち主。役目は「何があって、どこまで進んだか」が一目で分かること。
 - Listening と同じ色と考え方（深い藍色の地、文字と細い線、琥珀色は主な操作と進み具合だけ）。面は使わない。
-- 画面は1枚: Inbox（置いたエピソードと進み具合）→ Ready（できたもの。チェックを入れて Drive へ移す）→ Drive → Settings。
+- 画面は1枚: Episodes（この Mac から自動で見つけた候補。チェックを入れて Make。新しい順、30件ずつ、Search で絞る）→ Ready（できたもの。チェックを入れて Drive へ移す）→ Drive → Settings。
 - 行の下の線が進み具合（Subtitles 0〜30%、Notes 30〜90%、Voice 90〜100%）。できあがると線が全部琥珀色になる。
 - 言葉は英語で短く: Make / Stop / Move to Drive / Open folder / Test。足りないもの（Claude Code など）は上に警告色で1行ずつ。
 - 書体は Mac に入っている Avenir Next（配布するフォントを増やさない）。

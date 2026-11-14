@@ -11,8 +11,10 @@ docs/     デザインの計画
 
 ## 流れ
 
-1. **Mac**: Apple Podcasts から音声と字幕（`.ttml`）を取り出して、`Inbox` フォルダに置く。字幕がない回は音声だけでよい。
-2. **Mac**: `Listening Studio.command` をダブルクリックして **Make** を押す。
+1. **Mac**: `Listening Studio.command` をダブルクリックする。この Mac にある音声と字幕を自動で探して、候補に並べる。
+   - デスクトップの `Podcasts` フォルダ（中のフォルダもすべて）
+   - Apple Podcasts のアプリでダウンロードした音声と、自動で作られた字幕
+2. **Mac**: 作りたい回にチェックを入れて **Make** を押す。
    `Ready` フォルダに `名前.listening.json` と `名前.listening.m4a` ができる。
 3. **Mac**: iPhone に送りたい回にチェックを入れて **Move to Drive** を押す（Google ドライブと同期している `Podcastsdrive` フォルダへ移る）。
 4. **iPhone・iPad**: Listening を開き、**Add** でその2つのファイルを選ぶ。
@@ -50,15 +52,21 @@ docs/     デザインの計画
 **声**は Settings の Voice で選べます（日本語の声 5 種類。**Test** で聞けます）。
 原語の語句は、その言語の声（英語・中国語・スペイン語・フランス語）で読みます。
 
-### フォルダ
+### 探す場所と置く場所
 
-| フォルダ | 既定の場所 | 中身 |
+| 名前 | 既定の場所 | 中身 |
 | --- | --- | --- |
-| Inbox | `~/Desktop/Listening/Inbox` | 音声（`.mp3` `.m4a`）と字幕（`.ttml`）。同じ名前のものが1つのエピソード。すでにある `.json` を置くと、訳はそのまま使い、音声だけ作る |
+| Podcasts | 自動で探す（`~/Desktop/Podcasts` か `~/Desktop/Public/Podcasts`） | 音声（`.mp3` `.m4a`）・字幕（`.ttml`）・`.json`。同じ名前のものが1つのエピソード |
+| Apple Podcasts | アプリが作るフォルダ（読むだけ。変えない） | ダウンロードした音声と字幕。名前は `[番組名] 題名 (配信日)` にする |
 | Ready | `~/Desktop/Listening/Ready` | できあがった2つのファイル |
 | Drive | 自動で探す（`Podcastsdrive` という名前のフォルダ） | 選んで移したもの。Google ドライブと同期して iPhone から取り込む |
 
-場所は画面の Settings で変えられます。ファイル名が `[番組名] 題名 (20260101).mp3` の形なら、番組名と日付も読み取ります。
+- Podcasts・Ready・Drive の場所は、画面の Settings で変えられます。
+- 同じ名前の回が両方にあるときは、Podcasts フォルダのものを使います。
+- すでに `.json` がある回は、その訳・解説をそのまま使い、音声だけ作ります。
+  新しい選び方で作り直すときは、Settings の **Existing notes** を **Write new** にします。
+- Apple Podcasts を読むには、「システム設定 → プライバシーとセキュリティ → フルディスクアクセス」で
+  「ターミナル」をオンにします（読めないときは画面の上に案内が出ます）。
 
 コマンドで1つだけ作ることもできます: `python3 studio/make.py "…/エピソード.mp3"`
 

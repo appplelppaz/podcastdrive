@@ -15,9 +15,10 @@
   </header>
   <ul id="needs" class="needs"></ul>
 
-  <div class="head"><h2>Inbox</h2><button class="link" data-open="inbox" type="button">Open folder</button></div>
+  <div class="head"><h2>Episodes</h2><input id="find" type="search" placeholder="Search" aria-label="Search episodes"></div>
   <ul id="episodes" class="episodes"></ul>
-  <p id="empty" class="hint" hidden>Put an audio file here. Add its <code>.ttml</code> if you have one.</p>
+  <p id="empty" class="hint" hidden>No episodes found on this Mac.</p>
+  <button id="more" class="link" type="button" hidden></button>
   <p id="log" class="log"></p>
 
   <div class="head"><h2>Ready</h2>
@@ -34,7 +35,9 @@
     <select id="level"><option value="B1">B1</option><option value="B2">B2</option><option value="C1">C1</option></select></div>
   <div class="row" id="voiceRow"><label for="voice">Voice</label>
     <span class="pick"><select id="voice"></select><button id="test" class="link" type="button">Test</button></span></div>
-  <div class="row"><label for="inbox">Inbox</label><input id="inbox" type="text" spellcheck="false"></div>
+  <div class="row"><label for="notes">Existing notes</label>
+    <select id="notes"><option value="keep">Keep</option><option value="new">Write new</option></select></div>
+  <div class="row"><label for="library">Podcasts</label><input id="library" type="text" spellcheck="false"></div>
   <div class="row"><label for="ready">Ready</label><input id="ready" type="text" spellcheck="false"></div>
   <div class="row"><label for="drive">Drive</label><input id="drive" type="text" spellcheck="false"></div>
 </main>

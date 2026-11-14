@@ -21,15 +21,16 @@ def main():
     p.add_argument("--voice", action="append", help="言語=声 例: ja=jm_kumo")
     p.add_argument("--voice-engine", choices=["kokoro", "say", "openjtalk", "espeak-ng"])
     p.add_argument("--no-voice", action="store_true", help=".listening.json だけ作る")
+    p.add_argument("--new-notes", action="store_true", help="すでにある .json を使わず、訳・解説を作り直す")
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.file))
     name = pipeline.stem_of(os.path.basename(a.file))
-    ep = next((e for e in pipeline.scan(folder, a.out or folder) if e["name"] == name), None)
+    ep = next((e for e in pipeline.sources.library_episodes(folder) if e["name"] == name), None)
     if not ep:
         raise SystemExit("音声が見つかりません: " + name)
     voices = dict(v.split("=", 1) for v in a.voice or [])
     out = pipeline.make(ep, a.out or folder, os.path.join(a.out or folder, ".studio_work"), a.level, voices,
-                        a.voice_engine, a.lang, not a.no_voice)
+                        a.voice_engine, a.lang, not a.no_voice, a.new_notes)
     print("\n".join(out.values()))
 
 

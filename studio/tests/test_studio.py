@@ -86,16 +86,21 @@ class AnnotateTest(unittest.TestCase):
 class PipelineTest(unittest.TestCase):
     def test_make(self):
         with tempfile.TemporaryDirectory() as tmp:
-            fx, inbox, ready = (os.path.join(tmp, d) for d in ("fx", "Inbox", "Ready"))
+            fx, lib, ready = (os.path.join(tmp, d) for d in ("fx", "Podcasts", "Ready"))
+            home = os.path.join(tmp, "nohome")
             subprocess.run([sys.executable, os.path.join(HERE, "make_fixture.py"), fx], check=True, capture_output=True)
+            inbox = os.path.join(lib, "英語", "Demo Radio")  # ライブラリは下のフォルダも探す
             os.makedirs(inbox)
             name = "[Demo Radio] Morning market check (20260101)"
             for ext in (".mp3", ".ttml"):
                 shutil.copy(os.path.join(fx, name + ext), inbox)
             shutil.copy(os.path.join(fx, name + ".mp3"), os.path.join(inbox, "lonely.mp3"))
             open(os.path.join(inbox, "notes.txt"), "w").close()
-            eps = pipeline.scan(inbox, ready)
-            self.assertEqual([(e["name"], bool(e["ttml"]), e["done"]) for e in eps], [(name, True, False), ("lonely", False, False)])
+            eps, problem = pipeline.scan(lib, ready, home=home)
+            eps.sort(key=lambda e: e["name"])
+            self.assertEqual(problem, "")
+            self.assertEqual([(e["name"], bool(e["ttml"]), e["done"], e["source"]) for e in eps],
+                             [(name, True, False, os.path.join("英語", "Demo Radio")), ("lonely", False, False, os.path.join("英語", "Demo Radio"))])
             steps = []
             out = pipeline.make(eps[0], ready, os.path.join(tmp, "work"), "B2", None, "espeak-ng", ask=fake_claude(),
                                 log=lambda *a: None, step=lambda s, d=0, t=0: steps.append(s))
@@ -108,7 +113,8 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(doc["segments"][2]["translation"], "訳3。")
             self.assertTrue(all("orig:" + s["id"] in doc["audio"]["clips"] for s in doc["segments"]))
             self.assertEqual([s for i, s in enumerate(steps) if i == 0 or s != steps[i - 1]], ["Notes", "Voice"])
-            self.assertTrue(pipeline.scan(inbox, ready)[0]["done"])
+            done_of = lambda *a: {e["name"]: e["done"] for e in pipeline.scan(lib, *a, home=home)[0]}  # noqa: E731
+            self.assertEqual(done_of(ready), {name: True, "lonely": False})
             # 選んだものだけ Drive へ移す。移した後も「できあがり」のまま
             drive = os.path.join(tmp, "PodcastDrive")
             with self.assertRaises(RuntimeError):
@@ -120,7 +126,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(pipeline.move_finished({done[0]["name"]}, ready, drive), [done[0]["name"]])
             self.assertEqual(os.listdir(ready), [])
             self.assertEqual(len(os.listdir(drive)), 2)
-            self.assertTrue(pipeline.scan(inbox, ready, drive)[0]["done"])
+            self.assertTrue(done_of(ready, drive)[name])
             home = os.path.join(tmp, "home")
             self.assertEqual(pipeline.find_drive(home), "")
             os.makedirs(os.path.join(home, "Library", "CloudStorage", "GoogleDrive-a@b.c", "My Drive", "Podcastsdrive"))
@@ -130,10 +136,45 @@ class PipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fx = os.path.join(tmp, "fx")
             subprocess.run([sys.executable, os.path.join(HERE, "make_fixture.py"), fx], check=True, capture_output=True)
-            ep = [e for e in pipeline.scan(fx, tmp) if not e["json"] or True][0]
-            ep = dict(ep, json=None)
+            ep = dict(pipeline.sources.library_episodes(fx)[0], json=None)
             with self.assertRaises(pipeline.Cancelled):
                 pipeline.make(ep, tmp, os.path.join(tmp, "work"), ask=fake_claude(), log=lambda *a: None, cancelled=lambda: True)
+
+
+class AppleTest(unittest.TestCase):
+    """Apple Podcasts のライブラリ（の形をまねた小さなデータ）から、音声と字幕を見つける。"""
+
+    def test_collect(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as home:
+            group = os.path.join(home, "Library", "Group Containers", "243LU875E5.groups.com.apple.podcasts")
+            cache, ttml_dir = os.path.join(group, "Library", "Cache"), os.path.join(group, "Library", "Cache", "Assets", "TTML", "PodcastContent")
+            os.makedirs(os.path.join(group, "Documents"))
+            os.makedirs(ttml_dir)
+            for n in ("a.mp3", "b.mp3"):
+                open(os.path.join(cache, n), "wb").close()
+            open(os.path.join(ttml_dir, "transcript_111.ttml"), "w").close()
+            db = sqlite3.connect(os.path.join(group, "Documents", "MTLibrary.sqlite"))
+            db.execute("CREATE TABLE ZMTPODCAST (Z_PK INTEGER, ZTITLE TEXT)")
+            db.execute("CREATE TABLE ZMTEPISODE (ZTITLE TEXT, ZASSETURL TEXT, ZPODCAST INTEGER, ZPUBDATE REAL, ZUUID TEXT, ZSTORETRACKID INTEGER, ZFREETRANSCRIPTIDENTIFIER TEXT)")
+            db.execute("INSERT INTO ZMTPODCAST VALUES (1, 'Demo: Radio')")
+            day = 86400 * (365 * 25 + 6)  # 2001-01-01 から25年後 = 2026-01-01
+            db.executemany("INSERT INTO ZMTEPISODE VALUES (?,?,?,?,?,?,?)", [
+                ("With subtitles", "file://" + os.path.join(cache, "a.mp3"), 1, day, "u1", 111, "PodcastContent/transcript_111.ttml"),
+                ("Audio only", "file://" + os.path.join(cache, "b.mp3"), 1, day, "u2", 222, None),
+                ("Not downloaded", "file://" + os.path.join(cache, "gone.mp3"), 1, day, "u3", 333, None),
+                ("Streaming", None, 1, day, "u4", 444, None)])
+            db.commit()
+            db.close()
+            lib = os.path.join(home, "Desktop", "Podcasts")
+            os.makedirs(lib)
+            self.assertEqual(pipeline.sources.find_library(home), lib)
+            open(os.path.join(lib, "[Demo Radio] Audio only (20260101).mp3"), "wb").close()  # 同じ名前はライブラリを使う
+            eps, problem = pipeline.sources.collect(lib, home)
+            self.assertEqual(problem, "")
+            got = {e["name"]: (e["source"], bool(e["ttml"])) for e in eps}
+            self.assertEqual(got, {"[Demo Radio] With subtitles (20260101)": ("Apple Podcasts", True),
+                                   "[Demo Radio] Audio only (20260101)": ("", False)})
 
 
 if __name__ == "__main__":

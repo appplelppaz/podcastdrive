@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Listening Studio: この Mac の中だけで動く小さな画面（http://127.0.0.1:8760）。
 
-Inbox フォルダの音声（と字幕）から、聞き流しアプリ用のファイルを Ready フォルダに作る。
+この Mac にある音声と字幕（ライブラリのフォルダと Apple Podcasts）を自動で探して候補に出し、
+選んだものから Listening 用のファイルを Ready フォルダに作る。
 """
 import importlib.util
 import json
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,8 +29,8 @@ HOME = os.path.expanduser("~")
 DATA = os.environ.get("STUDIO_DATA") or (os.path.join(HOME, "Library", "Application Support", "ListeningStudio")
                                           if platform.system() == "Darwin" else os.path.join(HOME, ".listening-studio"))
 CONFIG = os.path.join(DATA, "config.json")
-DEFAULTS = {"inbox": os.path.join(HOME, "Desktop", "Listening", "Inbox"),
-            "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "drive": "", "level": "B2", "voice": "jf_alpha"}
+DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "drive": "", "level": "B2",
+            "voice": "jf_alpha", "notes": "keep"}  # notes: keep = すでにある .json の訳・解説を使う / new = 作り直す
 JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
 SAMPLE = "この声で、訳と解説を読み上げます。聞き取りにくい語句と、文の組み立てを説明します。"
 
@@ -45,7 +47,24 @@ def load_config():
         pass
     if not cfg["drive"]:
         cfg["drive"] = pipeline.find_drive()
+    if not cfg["library"]:
+        cfg["library"] = pipeline.sources.find_library()
     return cfg
+
+
+# 探すのは重い（フォルダの中すべてと Apple Podcasts のデータ）ので、数秒おきにだけやり直す
+_scan = {"at": 0.0, "key": None, "eps": [], "problem": ""}
+
+
+def scan(cfg, force=False):
+    key = (cfg["library"], cfg["ready"], cfg["drive"])
+    with lock:
+        fresh = not force and _scan["key"] == key and time.time() - _scan["at"] < 8
+    if not fresh:
+        eps, problem = pipeline.scan(*key)
+        with lock:
+            _scan.update(at=time.time(), key=key, eps=eps, problem=problem)
+    return _scan["eps"], _scan["problem"]
 
 
 def save_config(cfg):
@@ -80,9 +99,9 @@ def worker():
             continue
         cfg = load_config()
         try:
-            ep = next((e for e in pipeline.scan(cfg["inbox"], cfg["ready"], cfg["drive"]) if e["name"] == name), None)
-            if not ep:
-                raise RuntimeError("The audio file is no longer in the Inbox")
+            ep = next((e for e in scan(cfg)[0] if e["name"] == name), None)
+            if not ep or not os.path.exists(ep["audio"]):
+                raise RuntimeError("The audio file was not found")
             log("— " + name)
 
             def step(s, done=0, total=0):
@@ -91,8 +110,9 @@ def worker():
 
             engine = engine_name()
             pipeline.make(ep, cfg["ready"], os.path.join(DATA, "work"), cfg["level"],
-                          {"ja": cfg["voice"]} if engine == "kokoro" else None, engine, log=log, step=step,
-                          cancelled=lambda: state["stop"])
+                          {"ja": cfg["voice"]} if engine == "kokoro" else None, engine, fresh=cfg["notes"] == "new",
+                          log=log, step=step, cancelled=lambda: state["stop"])
+            scan(cfg, force=True)
             log("Ready: " + name)
             with lock:
                 state["failed"].pop(name, None)
@@ -110,20 +130,22 @@ def worker():
 
 def snapshot():
     cfg = load_config()
-    for k in ("inbox", "ready"):
-        os.makedirs(cfg[k], exist_ok=True)
+    os.makedirs(cfg["ready"], exist_ok=True)
     with lock:
         s = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v) for k, v in state.items()}
     eps = []
-    for e in pipeline.scan(cfg["inbox"], cfg["ready"], cfg["drive"]):
+    found, problem = scan(cfg)
+    for e in found:
         status = ("running" if e["name"] == s["current"] else "queued" if e["name"] in s["queue"]
                   else "failed" if e["name"] in s["failed"] else "ready" if e["done"] else "new")
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
+                    "source": e["source"],
                     "error": s["failed"].get(e["name"], "")})
     drive_ok = bool(cfg["drive"]) and os.path.isdir(cfg["drive"])
     return {"config": cfg, "ready": [{"name": e["name"], "bytes": e["bytes"]} for e in pipeline.finished(cfg["ready"])],
             "drive": {"found": drive_ok, "count": len(pipeline.finished(cfg["drive"])) if drive_ok else 0},
-            "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps, "checks": checks(),
+            "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,
+            "checks": dict(checks(), apple=problem, library=bool(cfg["library"]) and os.path.isdir(cfg["library"])),
             "job": {"name": s["current"], "step": s["step"], "done": s["done"], "total": s["total"]}, "log": s["log"][-12:]}
 
 
@@ -180,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/make":
             cfg = load_config()
-            known = {e["name"] for e in pipeline.scan(cfg["inbox"], cfg["ready"], cfg["drive"])}
+            known = {e["name"] for e in scan(cfg)[0]}
             with lock:
                 for n in body.get("names") or []:
                     if n in known and n not in state["queue"] and n != state["current"]:
@@ -191,6 +213,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 moved = pipeline.move_finished(set(body.get("names") or []), cfg["ready"], cfg["drive"])
                 log("Moved to Drive: %d" % len(moved))
+                scan(cfg, force=True)
             except (RuntimeError, OSError) as err:
                 return self.send(dict(snapshot(), error=str(err)[:300]))
         elif path == "/api/stop":
@@ -199,13 +222,15 @@ class Handler(BaseHTTPRequestHandler):
                 state["stop"] = True
         elif path == "/api/config":
             cfg = load_config()
-            for k in ("inbox", "ready", "drive"):
+            for k in ("library", "ready", "drive"):
                 if isinstance(body.get(k), str) and body[k].strip():
                     cfg[k] = os.path.abspath(os.path.expanduser(body[k].strip()))
             if body.get("level") in ("B1", "B2", "C1"):
                 cfg["level"] = body["level"]
             if body.get("voice") in JA_VOICES:
                 cfg["voice"] = body["voice"]
+            if body.get("notes") in ("keep", "new"):
+                cfg["notes"] = body["notes"]
             save_config(cfg)
         elif path == "/api/open":
             folder = load_config().get(body.get("folder"))

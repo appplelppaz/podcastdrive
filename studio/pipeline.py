@@ -18,20 +18,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import annotate as annotate_mod  # noqa: E402
+import sources  # noqa: E402
 import ttml as ttml_mod  # noqa: E402
 import validate as validate_mod  # noqa: E402
 from listening import convert, sprite, tts  # noqa: E402
 
-AUDIO_EXTS = (".mp3", ".m4a", ".aac", ".wav")
+stem_of = sources.stem_of
 STEPS = ("Subtitles", "Notes", "Voice")
 
 
 class Cancelled(Exception):
     pass
-
-
-def stem_of(name):
-    return re.sub(r"\.(listening\.json|listening\.m4a|json|ttml|xml|mp3|m4a|aac|wav)$", "", name, flags=re.I)
 
 
 def finished(folder):
@@ -87,26 +84,16 @@ def find_drive(home=None):
     return ""
 
 
-def scan(inbox, ready, drive=None):
-    """Inbox の中のエピソード（同じ名前のファイルの組）と、できあがっているかどうか（Drive に移した分も含む）。"""
-    groups = {}
-    if os.path.isdir(inbox):
-        for name in sorted(os.listdir(inbox)):
-            path = os.path.join(inbox, name)
-            if name.startswith(".") or not os.path.isfile(path) or ".listening." in name:
-                continue
-            ext = os.path.splitext(name)[1].lower()
-            kind = "audio" if ext in AUDIO_EXTS else "ttml" if ext in (".ttml", ".xml") else "json" if ext == ".json" else None
-            if kind:
-                groups.setdefault(stem_of(name), {})[kind] = path
-    out = []
-    for stem, g in groups.items():
-        if "audio" not in g:
-            continue
-        target = _out_stem(stem, g.get("json")) + ".listening.m4a"
-        done = any(d and os.path.exists(os.path.join(d, target)) for d in (ready, drive))
-        out.append({"name": stem, "audio": g["audio"], "ttml": g.get("ttml"), "json": g.get("json"), "done": done})
-    return out
+def scan(library, ready, drive=None, home=None):
+    """(エピソードの一覧, Apple Podcasts を読めなかった理由)。できあがっているか（Drive に移した分も含む）も付ける。"""
+    eps, problem = sources.collect(library, home)
+    have = set()
+    for d in (ready, drive):
+        if d and os.path.isdir(d):
+            have.update(n for n in os.listdir(d) if n.endswith(".listening.m4a"))
+    for e in eps:
+        e["done"] = _out_stem(e["name"]) + ".listening.m4a" in have
+    return eps, problem
 
 
 def _meta(stem, lang):
@@ -117,19 +104,12 @@ def _meta(stem, lang):
             "sourceLanguage": lang, "targetLanguage": "ja"}
 
 
-def _out_stem(stem, json_path=None):
-    meta = {}
-    if json_path and os.path.exists(json_path):
-        try:
-            with open(json_path, encoding="utf-8") as f:
-                raw = json.load(f)
-            meta = raw.get("metadata", {}) if isinstance(raw, dict) else {}
-        except (OSError, ValueError):
-            meta = {}
-    return convert.episode_stem(meta or _meta(stem, ""), stem + ".json")
+def _out_stem(stem):
+    """できあがるファイルの名前（拡張子の前）。エピソードの名前だけで決まる。"""
+    return convert.episode_stem(_meta(stem, ""), stem + ".json")
 
 
-def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None, voice=True,
+def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None, voice=True, fresh=False,
          log=print, step=lambda name, done=0, total=0: None, cancelled=lambda: False, ask=None):
     """ep: scan() の1件。できたファイルの場所を返す。"""
     name = ep["name"]
@@ -159,7 +139,7 @@ def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None,
     check()
 
     # 2. 訳・語彙・解説。すでに .json がある回はそれを使う
-    json_path = ep.get("json")
+    json_path = None if fresh else ep.get("json")  # fresh: すでにある訳・解説を使わず、作り直す
     if not json_path:
         json_path = os.path.join(wdir, name + ".json")
         source_lang, segs = ttml_mod.parse_ttml(ttml_path)
@@ -190,7 +170,7 @@ def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None,
     check()
 
     # 3. 聞き流しアプリの形にして、訳・解説の音声を作る
-    listening = os.path.join(ready, _out_stem(name, json_path) + ".listening.json")
+    listening = os.path.join(ready, _out_stem(name) + ".listening.json")
     doc = convert.convert(json_path, ttml_path, ep["audio"], listening, log=lambda *a: None)
     for w in doc.get("warnings", [])[:5]:
         log("Check: " + w)
