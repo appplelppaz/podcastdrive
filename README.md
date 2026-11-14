@@ -16,8 +16,7 @@ docs/     デザインの計画
    - Apple Podcasts のアプリでダウンロードした音声と、自動で作られた字幕
 2. **Mac**: 作りたい回にチェックを入れて **Make** を押す。
    `Ready` フォルダに `名前.listening.json` と `名前.listening.m4a` ができる。
-3. **Mac**: iPhone に送りたい回にチェックを入れて **Move to Drive** を押す（Google ドライブと同期している `Podcastsdrive` フォルダへ移る）。
-4. **iPhone・iPad**: Listening を開き、**Add** でその2つのファイルを選ぶ。
+3. **iPhone・iPad**: その2つのファイルを iPhone から見える場所（Google ドライブなど）に置き、Listening の **Add** で選ぶ。
 
 ## Listening Studio（Mac）
 
@@ -59,9 +58,8 @@ docs/     デザインの計画
 | Podcasts | 自動で探す（`~/Desktop/Podcasts` か `~/Desktop/Public/Podcasts`） | 音声（`.mp3` `.m4a`）・字幕（`.ttml`）・`.json`。同じ名前のものが1つのエピソード |
 | Apple Podcasts | アプリが作るフォルダ（読むだけ。変えない） | ダウンロードした音声と字幕。名前は `[番組名] 題名 (配信日)` にする |
 | Ready | `~/Desktop/Listening/Ready` | できあがった2つのファイル |
-| Drive | 自動で探す（`Podcastsdrive` という名前のフォルダ） | 選んで移したもの。Google ドライブと同期して iPhone から取り込む |
 
-- Podcasts・Ready・Drive の場所は、画面の Settings で変えられます。
+- Podcasts・Ready の場所は、画面の Settings で変えられます（Ready を Google ドライブと同期するフォルダにしておくこともできます）。
 - 同じ名前の回が両方にあるときは、Podcasts フォルダのものを使います。
 - すでに `.json` がある回は、その訳・解説をそのまま使い、音声だけ作ります。
   新しい選び方で作り直すときは、Settings の **Existing notes** を **Write new** にします。

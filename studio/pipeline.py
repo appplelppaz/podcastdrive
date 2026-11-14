@@ -11,7 +11,6 @@ import io
 import json
 import os
 import re
-import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,53 +43,10 @@ def finished(folder):
     return out
 
 
-def move_finished(names, ready, drive):
-    """選んだエピソードの2つのファイルを Ready から Drive へ移す。移した名前を返す。"""
-    if not drive or not os.path.isdir(drive):
-        raise RuntimeError("The Drive folder was not found. Set it in Settings.")
-    if os.path.realpath(drive) == os.path.realpath(ready):
-        raise RuntimeError("Drive and Ready are the same folder.")
-    moved = []
-    for ep in finished(ready):
-        if ep["name"] in names:
-            for f in ep["files"]:
-                dst = os.path.join(drive, os.path.basename(f))
-                shutil.move(f, dst + ".part")
-                os.replace(dst + ".part", dst)
-            moved.append(ep["name"])
-    return moved
-
-
-def find_drive(home=None):
-    """持ち主が作った PodcastDrive フォルダ（Google ドライブと同期している）を探す。なければ空文字。"""
-    home = home or os.path.expanduser("~")
-    names = ("podcastsdrive", "podcastdrive", "podcasts drive", "podcast drive", "ポッドキャストドライブ")  # 持ち主のフォルダ名は Podcastsdrive
-    roots = [os.path.join(home, "Desktop"), os.path.join(home, "Desktop", "Public"), os.path.join(home, "Documents"), home]
-    cloud = os.path.join(home, "Library", "CloudStorage")
-    if os.path.isdir(cloud):
-        for acct in sorted(os.listdir(cloud)):
-            if acct.startswith("GoogleDrive"):
-                base = os.path.join(cloud, acct)
-                roots += [os.path.join(base, d) for d in ("My Drive", "マイドライブ")] + [base]
-    for root in roots:
-        try:
-            entries = os.listdir(root)
-        except OSError:
-            continue
-        for n in names:  # 大文字・小文字の違いは気にしない
-            for e in entries:
-                if e.lower() == n and os.path.isdir(os.path.join(root, e)):
-                    return os.path.join(root, e)
-    return ""
-
-
-def scan(library, ready, drive=None, home=None):
-    """(エピソードの一覧, Apple Podcasts を読めなかった理由)。できあがっているか（Drive に移した分も含む）も付ける。"""
+def scan(library, ready, home=None):
+    """(エピソードの一覧, Apple Podcasts を読めなかった理由)。できあがっているかも付ける。"""
     eps, problem = sources.collect(library, home)
-    have = set()
-    for d in (ready, drive):
-        if d and os.path.isdir(d):
-            have.update(n for n in os.listdir(d) if n.endswith(".listening.m4a"))
+    have = {n for n in os.listdir(ready) if n.endswith(".listening.m4a")} if os.path.isdir(ready) else set()
     for e in eps:
         e["done"] = _out_stem(e["name"]) + ".listening.m4a" in have
     return eps, problem

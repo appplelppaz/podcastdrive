@@ -115,22 +115,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual([s for i, s in enumerate(steps) if i == 0 or s != steps[i - 1]], ["Notes", "Voice"])
             done_of = lambda *a: {e["name"]: e["done"] for e in pipeline.scan(lib, *a, home=home)[0]}  # noqa: E731
             self.assertEqual(done_of(ready), {name: True, "lonely": False})
-            # 選んだものだけ Drive へ移す。移した後も「できあがり」のまま
-            drive = os.path.join(tmp, "PodcastDrive")
-            with self.assertRaises(RuntimeError):
-                pipeline.move_finished({"x"}, ready, drive)
-            os.makedirs(drive)
-            done = pipeline.finished(ready)
-            self.assertEqual([e["name"] for e in done], ["Morning market check (2026-01-01)"])
-            self.assertEqual(pipeline.move_finished({"something else"}, ready, drive), [])
-            self.assertEqual(pipeline.move_finished({done[0]["name"]}, ready, drive), [done[0]["name"]])
-            self.assertEqual(os.listdir(ready), [])
-            self.assertEqual(len(os.listdir(drive)), 2)
-            self.assertTrue(done_of(ready, drive)[name])
-            home = os.path.join(tmp, "home")
-            self.assertEqual(pipeline.find_drive(home), "")
-            os.makedirs(os.path.join(home, "Library", "CloudStorage", "GoogleDrive-a@b.c", "My Drive", "Podcastsdrive"))
-            self.assertTrue(pipeline.find_drive(home).endswith(os.path.join("My Drive", "Podcastsdrive")))
+            self.assertEqual([e["name"] for e in pipeline.finished(ready)], ["Morning market check (2026-01-01)"])
 
     def test_stop(self):
         with tempfile.TemporaryDirectory() as tmp:

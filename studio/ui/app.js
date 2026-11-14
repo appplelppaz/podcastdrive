@@ -3,7 +3,6 @@ const $ = (id) => document.getElementById(id);
 const STEP_SHARE = { Subtitles: [0, 0.3], Notes: [0.3, 0.9], Voice: [0.9, 1] };
 let last = null;
 let editing = false;
-const picked = new Set(); // Drive へ移すエピソード
 const chosen = new Set(); // これから作るエピソード
 let limit = 30;
 const size = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(b / 1e6)) + " MB");
@@ -65,26 +64,17 @@ function render(s) {
   }));
   $("log").textContent = busy || s.episodes.some((e) => e.status === "failed") ? s.log.slice(-2).join("\n") : "";
 
-  // できあがったもの。選んだものだけ Drive（Google ドライブと同期するフォルダ）へ移す
-  const names = new Set(s.ready.map((e) => e.name));
-  for (const n of [...picked]) if (!names.has(n)) picked.delete(n);
+  // できあがったもの
   $("readyEmpty").hidden = s.ready.length > 0;
   $("readyList").replaceChildren(...s.ready.map((e) => {
     const li = document.createElement("li");
-    li.innerHTML = `<label><input type="checkbox"><span class="name"></span></label><span class="status"></span><div class="track"><span></span></div>`;
+    li.innerHTML = `<span class="what"><span class="name"></span></span><span class="status"></span><div class="track"><span></span></div>`;
     li.querySelector(".name").textContent = e.name;
     li.querySelector(".status").textContent = size(e.bytes);
-    const box = li.querySelector("input");
-    box.checked = picked.has(e.name);
-    box.onchange = () => { box.checked ? picked.add(e.name) : picked.delete(e.name); showMove(); };
     return li;
   }));
-  showMove();
-  $("driveInfo").textContent = !s.drive.found ? "Set the Drive folder in Settings." : s.drive.count === 1 ? "1 episode" : `${s.drive.count} episodes`;
-  if (s.error !== undefined) $("moveError").textContent = s.error;
 
   if (!editing) {
-    $("drive").value = s.config.drive;
     $("level").value = s.config.level;
     $("library").value = s.config.library;
     $("notes").value = s.config.notes;
@@ -93,11 +83,6 @@ function render(s) {
     if ($("voice").options.length !== s.voices.length) $("voice").replaceChildren(...s.voices.map((v) => new Option(v, v)));
     $("voice").value = s.config.voice;
   }
-}
-
-function showMove() {
-  $("move").hidden = !picked.size || !(last && last.drive.found);
-  $("move").textContent = picked.size > 1 ? `Move ${picked.size} to Drive` : "Move to Drive";
 }
 
 async function refresh() {
@@ -109,11 +94,7 @@ $("find").oninput = () => { limit = 30; if (last) render(last); };
 $("more").onclick = () => { limit += 100; render(last); };
 $("stop").onclick = async () => render(await api("/api/stop", {}));
 for (const b of document.querySelectorAll("[data-open]")) b.onclick = () => api("/api/open", { folder: b.dataset.open });
-$("move").onclick = async () => {
-  $("moveError").textContent = "";
-  render(await api("/api/move", { names: [...picked] }));
-};
-for (const id of ["level", "voice", "notes", "library", "ready", "drive"]) {
+for (const id of ["level", "voice", "notes", "library", "ready"]) {
   $(id).addEventListener("focus", () => { editing = true; });
   $(id).addEventListener("change", async () => { editing = false; render(await api("/api/config", { [id]: $(id).value })); });
   $(id).addEventListener("blur", () => { editing = false; });
