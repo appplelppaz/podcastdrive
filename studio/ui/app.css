@@ -1,0 +1,50 @@
+/* 聞き流しアプリ（app/）と同じ色と考え方: 深い藍色の地に文字と細い線だけ。線が進み具合になる。docs/design.md */
+:root { --night: #0D1830; --dial: #F5A524; --lamp: #F4ECDF; --haze: #8291AB; --alarm: #FF8A70; --rule: #22324F; --on-dial: #0D1830;
+  color-scheme: dark; }
+@media (prefers-color-scheme: light) {
+  :root { --night: #EEF2F7; --dial: #9A5800; --lamp: #13213B; --haze: #56637A; --alarm: #B3361F; --rule: #D5DCE7; --on-dial: #FFFFFF;
+    color-scheme: light; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--night); color: var(--lamp);
+  font: 17px/1.55 "Avenir Next", "Hiragino Sans", system-ui, sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 28px 28px 64px; }
+header { display: flex; align-items: center; gap: 18px; min-height: 56px; }
+h1 { flex: 1; margin: 0; font-size: 30px; line-height: 1.15; letter-spacing: -.015em; }
+h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--haze); }
+h2.gap { margin-top: 44px; }
+.head { display: flex; align-items: center; justify-content: space-between; margin-top: 40px; min-height: 44px; }
+code { font-family: inherit; font-weight: 700; }
+.hint { margin: 6px 0; color: var(--haze); font-size: 15px; }
+:focus-visible { outline: 3px solid var(--dial); outline-offset: 2px; }
+
+.button { min-height: 46px; padding: 0 26px; border: 0; border-radius: 23px; background: var(--dial); color: var(--on-dial);
+  font: inherit; font-weight: 700; cursor: pointer; }
+.link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--dial); font: inherit; font-weight: 700; cursor: pointer; }
+
+.needs { list-style: none; margin: 8px 0 0; padding: 0; color: var(--alarm); font-size: 15px; }
+.episodes { list-style: none; margin: 0; padding: 0; }
+.episodes li { position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 0 16px; }
+.episodes .what { flex: 1; min-width: 0; }
+.episodes .name { display: block; font-weight: 700; font-size: 19px; line-height: 1.3; overflow-wrap: break-word; }
+.episodes .meta { display: block; margin-top: 2px; color: var(--haze); font-size: 15px; }
+.episodes .error { display: block; margin-top: 2px; color: var(--alarm); font-size: 15px; }
+.episodes .status { flex: none; color: var(--haze); font-size: 15px; font-variant-numeric: tabular-nums; }
+.episodes .ready .status, .episodes .running .status { color: var(--dial); font-weight: 700; }
+.episodes .failed .status { color: var(--alarm); font-weight: 700; }
+.track { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--rule); overflow: hidden; }
+.track span { display: block; height: 100%; width: 0; background: var(--dial); transition: width .3s; }
+.episodes label { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; cursor: pointer; }
+.episodes input[type=checkbox] { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--dial); }
+.hint.error { color: var(--alarm); }
+.hint.error:empty { display: none; }
+.log { margin: 10px 0 0; min-height: 1.5em; color: var(--haze); font-size: 15px; white-space: pre-line; }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 54px; border-top: 1px solid var(--rule); }
+h2.gap + .row { margin-top: 10px; }
+.pick { display: inline-flex; align-items: center; gap: 16px; }
+select, input[type=text] { font: inherit; background: var(--night); color: var(--lamp); border: 1px solid var(--rule); border-radius: 10px;
+  min-height: 42px; padding: 0 10px; }
+input[type=text] { flex: 1; max-width: 520px; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

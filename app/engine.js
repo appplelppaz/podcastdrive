@@ -21,7 +21,7 @@ export const DEFAULTS = {
   translation: true,
   vocab: true,
   grammar: true,
-  cues: true,
+  cues: false,             // 「表現」「解説」と言う案内の声。持ち主の希望で使わない（常にオフ）
   repeatEpisode: false,
   carPrevious: "previous", // 車・ロック画面の「前へ」: previous（前の文）/ restart（今の文を最初から）
   keepAwake: true,         // 再生中は画面を消さない（アプリ側で使う）
@@ -45,6 +45,7 @@ export function clampSettings(s) {
     out[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : DEFAULTS[k];
   }
   out.voice = typeof out.voice === "string" ? out.voice : "";
+  out.cues = false;
   out.firstRepeats = Math.round(out.firstRepeats);
   out.secondRepeats = Math.round(out.secondRepeats);
   return out;

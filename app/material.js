@@ -1,8 +1,8 @@
 // 既存の教材ファイル（JSON・TTML・訳の訂正データ）を、そのまま聞き流し用のデータに変換する。
 // 事前の準備は要らない。アプリが取り込むときにこの変換を行い、端末に保存する。
 //
-// tools/listening（Python）の変換と同じ規則・同じ結果になるようにしている
-// （tools/tests/test_listening.py の MaterialParityTest で突き合わせる）。
+// studio/listening（Python）の変換と同じ規則・同じ結果になるようにしている
+// （studio/tests/test_listening.py の MaterialParityTest で突き合わせる）。
 //   - 時刻は JSON の begin/end を使い、TTML の単語の境界が 60ms 以内にあるときだけそれに合わせる
 //   - 文の途中で切れた区間は次とまとめる。訂正データに文ごとの訳があり TTML の文境界と合うときだけ分ける
 //   - 読み上げ文: 訳、語彙（最大2つ「語 → この文での意味」）、文法・背景（1文）。記号は話し言葉に直す
@@ -116,7 +116,7 @@ export function loadEpisode(raw) {
 
 // 読み上げ用の指定（speak）: 語彙は [原語, 日本語の意味]、文法は [言語, 文] の並び。言語を作る段階で決めておくので、推測しない。
 // {"vocab": [["认真", "真剣に"]], "grammar": [["zh", "原来"], ["ja", "と"], ["zh", "才是"], ["ja", "で、実はこちらこそがそうだった、という気づきを表します。"]]}
-// 項目は {"term", "meaning"} / {"lang", "text"} の形でもよい。Language Drill はこの項目を使わない
+// 項目は {"term", "meaning"} / {"lang", "text"} の形でもよい。
 export function parseSpeak(raw) {
   const vocab = [], grammar = [];
   let bad = 0;

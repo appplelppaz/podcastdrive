@@ -109,9 +109,9 @@ async function openFromStart(page, title) {
   const seg = await page.evaluate(() => window.__engine.doc.segments[2]);
   const n = (g) => seg.parts.filter((p) => p.type === "speech" && p.group === g).length;
   const rep = (label, k) => Array(k).fill(label);
-  // 訳は案内なしで本文だけ。語彙・解説は「案内（表現・解説）＋本文」。元音声に戻る前の「もう一度」はない
+  // 訳・語彙・解説とも本文だけ。「表現」「解説」「もう一度」などの案内は読み上げない
   const expected = ["Original", ...rep("Translation", n("translation")),
-    ...(n("vocab") ? rep("Vocabulary", 1 + n("vocab")) : []), ...(n("grammar") ? rep("Notes", 1 + n("grammar")) : []),
+    ...(n("vocab") ? rep("Vocabulary", n("vocab")) : []), ...(n("grammar") ? rep("Notes", n("grammar")) : []),
     "Original (again)"];
   const labels = log.map((l) => l.label);
   check("再生順序 ①元音声→訳→語彙→文法→④元音声", JSON.stringify(labels) === JSON.stringify(expected), labels.join(" → "));
@@ -122,6 +122,7 @@ async function openFromStart(page, title) {
   check("英語の語句は英語の声", speech.some((s) => s.lang === "en-US" && s.voice === "Samantha"), speech.filter((s) => s.lang === "en-US").map((s) => s.text).join(", "));
   // 語の後は意味だけを読む（「ここでは、…という意味です」は付けない）
   check("語彙の読み上げは意味だけ", !speech.some((s) => /ここでは|という意味です/.test(s.text)) && speech.some((s, i) => i > 0 && speech[i - 1].lang.startsWith("en") && s.lang.startsWith("ja") && /。$/.test(s.text)));
+  check("「表現」「解説」などの案内は読み上げない", !speech.some((x) => ["訳", "表現", "解説", "もう一度"].includes(x.text.trim())));
 
   // ---- 回数・速度
   await page.evaluate(() => window.__engine.updateSettings({ ...window.__engine.settings, firstRepeats: 2, secondRepeats: 3, originalRate: 0.7, translationRate: 1.3 }));
