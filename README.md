@@ -1,176 +1,101 @@
-# 聞き流し学習モード（Listening Mode）
+# Listening
 
-ポッドキャスト教材を、画面を見ずに耳だけで学ぶためのモードです。運転中の利用を想定しています。
-各文について次の順に自動で再生し、最後の文まで止まらずに進みます。
-
-1. 元のポッドキャスト音声の該当区間（合成音声では代用しません）
-2. 日本語訳の読み上げ
-3. 重要な語彙・表現（最大2つ）と、文法・背景の短い説明
-4. 同じ元音声の区間
-5. 次の文へ
+ポッドキャストを、1文ずつ「原文 → 日本語訳 → 語彙 → 解説 → 原文」の順に聞いて学ぶための道具です。
+運転中・ランニング中に、画面をほとんど見ずに使うことを想定しています。
 
 ```
-app/     iPhone 向けの再生アプリ（PWA。ホーム画面に追加して使う）
-tools/   必要なときだけ使う Mac 用の道具（ロック中向けの音声の作成、学習用音声の書き出し）
+app/      Listening          iPhone・iPad で聞くアプリ（PWA）
+studio/   Listening Studio   Mac で教材を作るアプリ
+docs/     デザインの計画
 ```
 
-**準備は要りません。** 今ある音声（`.mp3`）・JSON・原稿（`.ttml`）をそのままアプリに取り込みます。
-訳・語彙・文法の説明は、iPhone の音声で読み上げます（説明がない文は自然に省きます）。
-外部の有料サービスや認証は使いません。
+## 流れ
 
-## 使い方
+1. **Mac**: `Listening Studio.command` をダブルクリックする。この Mac にある音声と字幕を自動で探して、候補に並べる。
+   - デスクトップの `Podcasts` フォルダ（中のフォルダもすべて）
+   - Apple Podcasts のアプリでダウンロードした音声と、自動で作られた字幕
+2. **Mac**: 作りたい回にチェックを入れて **Make** を押す。
+   `Ready` フォルダに `名前.listening.json` と `名前.listening.m4a` ができる。
+3. **Mac**: iPhone に送りたい回にチェックを入れて **Move to Drive** を押す（Google ドライブと同期している `Podcastsdrive` フォルダへ移る）。
+4. **iPhone・iPad**: Listening を開き、**Add** でその2つのファイルを選ぶ。
 
-### 1. iPhone に教材を入れる（出発前）
+## Listening Studio（Mac）
 
-1. Safari で https://podcastdrive-app.vercel.app を開き、共有メニューの「ホーム画面に追加」を選ぶ。
-2. **Add material** を押し、ファイルアプリ（Google Drive）の番組フォルダから、
-   聴きたい回の **`.mp3`・`.json`・`.ttml` を一緒に**選ぶ。
-   - 何回分かをまとめて選べます。同じ名前のファイルが1つの教材になります。
-   - `.ttml` があると、時刻が単語単位で正確になり、字幕で今の単語が強調されます（なくても再生できます）。
-   - 訳の訂正データ（`.fix.json`）がある回は、それも一緒に選びます（例：Iran's economy の回）。
-     既存JSONの訳が音声とずれている回は、取り込み時に警告が出ます。
-3. 取り込んだ教材は端末内に保存されるので、運転中は通信なしで再生できます。
-4. 設定を選んで **Start**（前回の続きがあれば **Resume**）を押す。
+`studio/Listening Studio.command` をダブルクリックすると、ブラウザに画面が開きます。
+初めてのときは、右クリック →「開く」で開いてください（インターネットから取ったファイルのため）。
 
-**読み上げの声**：iPhone の 設定 → アクセシビリティ → 読み上げコンテンツ → 声 から、
-日本語「Kyoko（拡張）」、英語「Samantha（拡張）」などをダウンロードしておくと、自動でその声を使います。
+### 用意するもの
 
-**画面ロックについて**：iPhone の音声読み上げは、画面がロックされると止まることがあります。
-アプリは再生中に画面を消さないようにしています（設定 **Keep screen on while playing**、初期値オン）。
-車ではホルダーに置いたまま、画面を点けておく使い方を想定しています。
-
-### 2. 運転中の操作
-
-| 操作 | 画面のジェスチャー | 車・ロック画面・イヤホン |
+| もの | 何に使うか | 費用 |
 | --- | --- | --- |
-| 一時停止 / 再開 | タップ | 再生 / 一時停止 |
+| [Homebrew](https://brew.sh) | Python と ffmpeg を入れる（起動ファイルが自動で入れる） | 無料 |
+| [Claude Code](https://claude.com/claude-code)（`claude` コマンド。一度 `claude` を実行してログイン） | 訳・語彙・解説を作る | 今の Claude の契約の範囲。API キーや追加の料金は使わない |
+
+最初の起動のとき、音声合成（Kokoro）・文字起こし（Whisper）・辞書をこの Mac に入れます（数分、数 GB）。
+2回目からはすぐ開きます。Apple シリコンの Mac を想定しています。
+
+### すること
+
+| 段階 | 内容 |
+| --- | --- |
+| Subtitles | 字幕（`.ttml`）があればそのまま使う。なければ Whisper（large-v3）で、単語ごとの時刻が付いた字幕を作る |
+| Notes | Claude Code が、文ごとに訳・語彙・解説を作る。途中で止まっても続きから始める |
+| Voice | 訳と解説を、Mac の中の AI 音声（Kokoro）で読み上げて、元の音声と1本にまとめる |
+
+**語彙と解説は、難しさで選びます。** 指示は `studio/guide.md` にあります。
+
+- 言語ごとの頻度表（wordfreq）で、設定したレベル（B1・B2・C1。既定は B2）の学習者が知らなそうな語を先に拾い、Claude に渡します。
+- 易しい語は、熟語や、いつもと違う意味で使われているときだけ説明します。頻度表で易しすぎる1語の説明は、後から自動で外します。
+- 解説は、語彙が分かっても文の組み立てや背景のせいで意味が取りにくい文にだけ付けます（目安は全体の 2〜4 割）。
+- 難しい語句も取りにくい構文もない文には、何も付けません。
+
+**声**は Settings の Voice で選べます（日本語の声 5 種類。**Test** で聞けます）。
+原語の語句は、その言語の声（英語・中国語・スペイン語・フランス語）で読みます。
+
+### 探す場所と置く場所
+
+| 名前 | 既定の場所 | 中身 |
+| --- | --- | --- |
+| Podcasts | 自動で探す（`~/Desktop/Podcasts` か `~/Desktop/Public/Podcasts`） | 音声（`.mp3` `.m4a`）・字幕（`.ttml`）・`.json`。同じ名前のものが1つのエピソード |
+| Apple Podcasts | アプリが作るフォルダ（読むだけ。変えない） | ダウンロードした音声と字幕。名前は `[番組名] 題名 (配信日)` にする |
+| Ready | `~/Desktop/Listening/Ready` | できあがった2つのファイル |
+| Drive | 自動で探す（`Podcastsdrive` という名前のフォルダ） | 選んで移したもの。Google ドライブと同期して iPhone から取り込む |
+
+- Podcasts・Ready・Drive の場所は、画面の Settings で変えられます。
+- 同じ名前の回が両方にあるときは、Podcasts フォルダのものを使います。
+- すでに `.json` がある回は、その訳・解説をそのまま使い、音声だけ作ります。
+  新しい選び方で作り直すときは、Settings の **Existing notes** を **Write new** にします。
+- Apple Podcasts を読むには、「システム設定 → プライバシーとセキュリティ → フルディスクアクセス」で
+  「ターミナル」をオンにします（読めないときは画面の上に案内が出ます）。
+
+コマンドで1つだけ作ることもできます: `python3 studio/make.py "…/エピソード.mp3"`
+
+## Listening（iPhone・iPad）
+
+- iPhone: https://podcastdrive-app.vercel.app
+- iPad: https://podcastdrive-app.vercel.app/ipad/
+
+Safari で開き、共有メニューの「ホーム画面に追加」を選びます。取り込んだ教材は端末の中に保存され、通信なしで聞けます。
+
+| 操作 | ジェスチャー | 車・ロック画面・イヤホン |
+| --- | --- | --- |
+| 一時停止 / 再開（止めた所から） | タップ | 再生 / 一時停止 |
 | 次へ（原文 → 訳 → 語彙 → 解説 → 次の文） | 左にスワイプ | 次の文 |
-| 1つ戻る（解説 → 語彙 → 訳 → 原文 → 前の文の解説） | 右にスワイプ | 前の文（設定で「今の文を最初から」にもできる） |
+| 1つ戻る | 右にスワイプ | 前の文 |
 | 今の文を最初から | 長押し | — |
 
-画面には、今聞いている原文を字幕で表示します。元音声の再生中は、今読まれている単語が強調されます。
-訳や解説の読み上げ中は、その日本語を原文の下に表示します。
+Studio で作った教材は、訳・解説も音声ファイルに入っているので、画面をロックしたままでも続けて流れます。
 
-**教材ごとの再生履歴**：文を移るたび、また一時停止・中断・アプリを閉じたときに、教材ごとの位置を保存します。
-一覧には各教材の前回の位置が出ます。**Resume** でその文から、**Start over** で最初から再生します。
-通話などで再生が止められたときは、その文の位置を保ったまま止まります。
+以前の形（`.mp3`・`.json`・`.ttml` を一緒に選ぶ）もそのまま取り込めます。その場合、訳と解説は端末の声で読み上げます。
 
-### 設定（Settings）
-
-| 項目 | 範囲 | 初期値 |
-| --- | --- | --- |
-| 最初の元音声の回数 / 解説後の元音声の回数 | 各1〜5回 | 各1回 |
-| 元音声の速度（声の高さを保つ） | 0.5〜1.5倍 | 0.9倍 |
-| 訳の読み上げ速度 / 解説の読み上げ速度 | 各0.5〜2倍 | 1倍 |
-| 文と文の間の無音 | 0〜3秒 | 0.7秒 |
-| 日本語訳・語彙・文法と背景・案内（「訳」「表現」「もう一度」）・エピソードのリピート | オン/オフ | リピートのみオフ |
-| 再生中は画面を消さない | オン/オフ | オン |
-
-## 必要なときだけ：Mac で作る音声（`tools/`）
-
-画面をロックしたまま聞きたいときは、Mac で訳・解説を事前に音声にしておく方法もあります
-（macOS 標準の `say` を使用。無料・オフライン）。ffmpeg が必要です（`brew install ffmpeg`）。
+## 確認
 
 ```bash
-python3 tools/prepare_listening.py "英語/Business Daily/[Business Daily] Reinventing Kodak (20260414).json"
+python3 -m unittest discover -s studio/tests
 ```
-
-同じフォルダに `エピソード名 (日付).listening.json` と `エピソード名 (日付).listening.m4a` ができます。
-この2つを一緒に **Add material** で選ぶと、元音声と読み上げを1本の音声として再生します。
-訂正データがある回は `python3 tools/apply_fix.py "…/元の名前.json"` のあと
-`python3 tools/render_listening_audio.py "…/エピソード名 (日付).listening.json"` を実行します。
-
-設定を焼き込んだ1本の音声（文ごとに章付き）を書き出して、普通の音楽アプリで聞くこともできます。
 
 ```bash
-python3 tools/export_learning_track.py "…/エピソード名 (日付).listening.json" --first 2 --speed 0.8 --gap 1.5 --no-grammar
+bash app/tests/run_e2e.sh
 ```
 
-## JSON を作るスキル（`skills/`）
-
-Claude のスキルで、Language Drill とこのアプリの両方で使える JSON を作ります。
-
-| スキル | 使うとき |
-|---|---|
-| `podcast-json` | Apple Podcasts から取り込み → 整理 → TTML から JSON（一括） |
-| `ttml-to-json` | TTML から JSON（変換だけ）。既存の JSON に単語の時刻だけを足すことも |
-| `podcast-transcribe` | TTML がない回：音声から単語ごとの時刻付き TTML を作り、JSON まで作る |
-
-- JSON の既存の項目（`begin` `end` `original` `translation` `words` `grammar` `pinyin`）は変えず、
-  各文に `wordTimings`（`[[開始秒, 終了秒, "語"], ...]`）を足します。Language Drill は知らない項目を使いません。
-- 各文の `speak` に、聞き流しアプリが読み上げる語彙（`[原語, 日本語の意味]` を2つまで）と文法（`[言語, 文]` の並び）を書きます。
-  アプリは `speak` に書かれた言語の声で読み、推測しません（`speak` がない古い JSON だけ、文字の種類と原文から言語を推測します）。
-  `validate_json.py` は、語彙か文法がある文に `speak` がないとエラーにします。
-- 共通スクリプト（`podcast-json/scripts/`）: `parse_ttml.py`（文ごとに分け、単語の時刻も返す）、
-  `add_word_timings.py`（既存の JSON に単語の時刻だけを足す）、`validate_json.py`（訳のずれ・時刻・形の確認）。
-- `podcast-transcribe/scripts/transcribe.py`: Whisper large-v3（Mac では mlx-whisper、ほかは faster-whisper）で
-  単語の時刻付きの Apple 形式 TTML を作ります。
-- 直したら `python3 skills/build.py` で共通スクリプトを各スキルへ写し、`skills/dist/*.skill` を作ります（claude.ai に入れるファイル）。
-- 確認: `python3 -m unittest skills/tests/test_skills.py`
-
-## Mac で ChatGPT 用に集める（`mac/`）
-
-`PodcastsChatGPTに集める.command`（`python3 mac/build_command.py` で作る）をデスクトップに置いてダブルクリックすると、
-Apple Podcasts で、実行した日（今日）にダウンロード・保存された音声と字幕（TTML）だけを
-Dropbox の `PodcastsChatGPT` フォルダ（`~/Library/CloudStorage/Dropbox/PodcastsChatGPT`）にコピーします（元のファイルはそのまま）。
-アップロードは Mac の Dropbox アプリがするので、別の場所の Windows パソコンでも Dropbox から受け取れます。
-初回にデスクトップへ `PodcastsChatGPT` フォルダのショートカットを作ります。
-一度集めた回は `.collected.json` に記録し、集めたファイルを移した後も二度はコピーしません。
-前の日のものは集めません（音声と字幕はそれぞれの日付で判断）。
-以前の集め先（`~/Desktop/Public/PodcastsChatGPT`）にあるファイルと記録は Dropbox へ移します。
-Mac に Dropbox のアプリが要り、ターミナルにフルディスクアクセスが要ります。確認: `python3 -m unittest mac/test_collect.py`
-
-## アプリの置き場所
-
-アプリは静的ファイルだけでできていて、Vercel の `podcastdrive-app` プロジェクト（Root Directory: `app`）で公開しています。
-
-- URL: https://podcastdrive-app.vercel.app
-- iPad 版: https://podcastdrive-app.vercel.app/ipad/ （同じアプリを左右2列で表示。教材・設定は共通。`app/vercel.json` の書き換えで配る）
-- `main` に変更を入れると、自動で再デプロイされます。
-
-公開されるのはアプリ本体だけで、教材は含みません。教材は各端末に取り込みます。
-
-## 専用JSON（`エピソード名 (日付).listening.json`）
-
-アプリは既存ファイルを取り込むときに、これと同じ形のデータを端末内で作ります（`app/material.js`。Mac の `tools/` と同じ規則で、テストで結果の一致を確かめています）。
-
-| キー | 内容 |
-| --- | --- |
-| `format`, `formatVersion` | `"podcast-listening"`, `1` |
-| `materialId` | 教材ID（番組・日付・元ファイル名から作る） |
-| `sourceLanguage`, `targetLanguage` | 既存JSONの `metadata` に従う（英語固定ではない） |
-| `sources` | 元ファイル（JSON・TTML・音声）の名前と SHA-256。訂正版から作ったときは `originalJson` も記録 |
-| `cues` | 案内（訳・表現・解説・もう一度）の文と音声クリップID |
-| `segments[]` | 区間ごとのデータ（下記） |
-| `audio` | 再生用音声のファイル名・SHA-256、各クリップの位置（`clips`）、使った声 |
-| `warnings` | 変換時の注意（訳のずれの疑いなど） |
-
-`segments[]` の各要素：
-
-- `id`, `key`, `sourceSegmentIds`, `sourcePart` — 区間IDと元のJSONとの対応
-- `begin`, `end`（秒）, `clip`（元音声を切り出す範囲）, `alignment`（TTMLとの照合結果）, `wordTimings`（字幕用の単語時刻）
-- `original`, `translation` — 原文と日本語訳（そのまま）
-- `display` — 表示用の語彙・文法（既存JSONのまま）
-- `listening` — 聞くための短い解説（語彙は最大2つ。`term`・この文での意味・補足と、文法・背景1文）。
-  `source` は作者が書いたもの（`authored`）か、規則で作ったもの（`auto`）か
-- `parts` — 読み上げ順のパーツ。各パーツに言語（`lang`）と音声クリップID（`clip`）がある
-
-解説の文中の `[[...]]` は教材の言語の声で読みます（例：`[[how]]で始まる部分が…`）。
-
-### 変換の規則
-
-- **時刻**：JSON の `begin`/`end` を、TTML の単語の境界が 60ms 以内にあるときだけそれに合わせます。
-  時刻を推測で作ることはしません。
-- **切れ目を音声に合わせる（アプリで取り込むとき）**：元音声の音量を調べ、文の切れ目の近くで声が途切れているところ（60ms 以上静かなところ）に、前の文の終わりと次の文の始まりを合わせます。前の文は声が消えた少し後（0.12秒）まで、次の文は声が出る少し前（0.08秒）から流します。単語ごとの時刻がある TTML（Apple）では前後 0.35 秒、文ごとの時刻しかないとき（音声から作った TTML、JSON のみ）は前後 0.8 秒の範囲だけを探し、静かなところがなければ時刻どおりにします。以前に取り込んだ回は、最初に開いたときに一度だけ行います。
-- **文の区切り**：1区間に複数の文があり、文ごとの訳（`translationParts`）と TTML の文の時刻が両方そろうときだけ分割します。
-  文の途中で切れた区間は、次の区間とまとめます。どちらにも当てはまらなければ既存の区間をそのまま使います。
-- **聞くための解説**：教材を取り込むときに一度だけ作って端末に保存します。AI や外部サービスは使いません。
-  記号・括弧・スラッシュ・品詞ラベル・【訂正】メモは読み上げません。解説は通常速度で20秒以内に収めます。
-- **訳のずれの検出**：原文の数字が訳に見当たらない区間が多いと警告を出します。
-
-## テスト
-
-```bash
-python3 -m unittest discover -s tools/tests   # 変換・読み上げテキスト・アプリと書き出しの再生順の一致
-tools/tests/run_e2e.sh                        # 架空の教材を作り、Chromium でアプリを操作して確認
-```
+必要なもの: python3、ffmpeg、espeak-ng、node、Playwright（Chromium）。テストは外部のサービスを使いません。

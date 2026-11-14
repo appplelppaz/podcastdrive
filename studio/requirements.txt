@@ -1,0 +1,8 @@
+# Listening Studio が使うもの（起動ファイルが最初に自動で入れる）
+kokoro>=0.9.4                # 訳・解説を読む AI 音声（Mac の中だけで動く）
+misaki[ja,zh]>=0.9.4         # 日本語・中国語の読み方
+soundfile
+wordfreq>=3.1                # 語の頻度表（難しい語を選ぶ）
+opencc-python-reimplemented  # 中国語の簡体字・繁体字をそろえる
+mlx-whisper; sys_platform == "darwin" and platform_machine == "arm64"      # 字幕がない回の文字起こし
+faster-whisper; sys_platform != "darwin" or platform_machine != "arm64"

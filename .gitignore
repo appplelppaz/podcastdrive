@@ -5,6 +5,7 @@
 *.ttml
 *.listening.json
 .listening_cache/
+.studio_work/
 __pycache__/
 *.pyc
 .DS_Store
