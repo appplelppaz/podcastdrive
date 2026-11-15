@@ -40,8 +40,6 @@ code { font-family: inherit; font-weight: 700; }
 input[type=search] { font: inherit; width: 220px; min-height: 40px; padding: 0 12px; background: var(--night); color: var(--lamp);
   border: 1px solid var(--rule); border-radius: 20px; }
 #more { display: block; margin-top: 6px; }
-.hint.error { color: var(--alarm); }
-.hint.error:empty { display: none; }
 .log { margin: 10px 0 0; min-height: 1.5em; color: var(--haze); font-size: 15px; white-space: pre-line; }
 
 .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 54px; border-top: 1px solid var(--rule); }

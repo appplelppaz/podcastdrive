@@ -29,7 +29,7 @@ HOME = os.path.expanduser("~")
 DATA = os.environ.get("STUDIO_DATA") or (os.path.join(HOME, "Library", "Application Support", "ListeningStudio")
                                           if platform.system() == "Darwin" else os.path.join(HOME, ".listening-studio"))
 CONFIG = os.path.join(DATA, "config.json")
-DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "drive": "", "level": "B2",
+DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "level": "B2",
             "voice": "jf_alpha", "notes": "keep"}  # notes: keep = すでにある .json の訳・解説を使う / new = 作り直す
 JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
 SAMPLE = "この声で、訳と解説を読み上げます。聞き取りにくい語句と、文の組み立てを説明します。"
@@ -45,8 +45,6 @@ def load_config():
             cfg.update({k: v for k, v in json.load(f).items() if k in DEFAULTS and isinstance(v, str) and v})
     except (OSError, ValueError):
         pass
-    if not cfg["drive"]:
-        cfg["drive"] = pipeline.find_drive()
     if not cfg["library"]:
         cfg["library"] = pipeline.sources.find_library()
     return cfg
@@ -57,7 +55,7 @@ _scan = {"at": 0.0, "key": None, "eps": [], "problem": ""}
 
 
 def scan(cfg, force=False):
-    key = (cfg["library"], cfg["ready"], cfg["drive"])
+    key = (cfg["library"], cfg["ready"])
     with lock:
         fresh = not force and _scan["key"] == key and time.time() - _scan["at"] < 8
     if not fresh:
@@ -141,9 +139,7 @@ def snapshot():
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
                     "source": e["source"],
                     "error": s["failed"].get(e["name"], "")})
-    drive_ok = bool(cfg["drive"]) and os.path.isdir(cfg["drive"])
     return {"config": cfg, "ready": [{"name": e["name"], "bytes": e["bytes"]} for e in pipeline.finished(cfg["ready"])],
-            "drive": {"found": drive_ok, "count": len(pipeline.finished(cfg["drive"])) if drive_ok else 0},
             "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,
             "checks": dict(checks(), apple=problem, library=bool(cfg["library"]) and os.path.isdir(cfg["library"])),
             "job": {"name": s["current"], "step": s["step"], "done": s["done"], "total": s["total"]}, "log": s["log"][-12:]}
@@ -208,21 +204,13 @@ class Handler(BaseHTTPRequestHandler):
                     if n in known and n not in state["queue"] and n != state["current"]:
                         state["queue"].append(n)
                         state["failed"].pop(n, None)
-        elif path == "/api/move":
-            cfg = load_config()
-            try:
-                moved = pipeline.move_finished(set(body.get("names") or []), cfg["ready"], cfg["drive"])
-                log("Moved to Drive: %d" % len(moved))
-                scan(cfg, force=True)
-            except (RuntimeError, OSError) as err:
-                return self.send(dict(snapshot(), error=str(err)[:300]))
         elif path == "/api/stop":
             with lock:
                 state["queue"] = []
                 state["stop"] = True
         elif path == "/api/config":
             cfg = load_config()
-            for k in ("library", "ready", "drive"):
+            for k in ("library", "ready"):
                 if isinstance(body.get(k), str) and body[k].strip():
                     cfg[k] = os.path.abspath(os.path.expanduser(body[k].strip()))
             if body.get("level") in ("B1", "B2", "C1"):

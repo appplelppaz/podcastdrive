@@ -21,14 +21,9 @@
   <button id="more" class="link" type="button" hidden></button>
   <p id="log" class="log"></p>
 
-  <div class="head"><h2>Ready</h2>
-    <span class="pick"><button id="move" class="link" type="button" hidden>Move to Drive</button><button class="link" data-open="ready" type="button">Open folder</button></span></div>
+  <div class="head"><h2>Ready</h2><button class="link" data-open="ready" type="button">Open folder</button></div>
   <ul id="readyList" class="episodes"></ul>
   <p id="readyEmpty" class="hint">Nothing here yet.</p>
-  <p id="moveError" class="hint error"></p>
-
-  <div class="head"><h2>Drive</h2><button class="link" data-open="drive" type="button">Open folder</button></div>
-  <p id="driveInfo" class="hint"></p>
 
   <h2 class="gap">Settings</h2>
   <div class="row"><label for="level">Level</label>
@@ -39,7 +34,6 @@
     <select id="notes"><option value="keep">Keep</option><option value="new">Write new</option></select></div>
   <div class="row"><label for="library">Podcasts</label><input id="library" type="text" spellcheck="false"></div>
   <div class="row"><label for="ready">Ready</label><input id="ready" type="text" spellcheck="false"></div>
-  <div class="row"><label for="drive">Drive</label><input id="drive" type="text" spellcheck="false"></div>
 </main>
 <script src="app.js"></script>
 </body>
