@@ -42,7 +42,7 @@ function render(s) {
 
   // 自動で見つけた候補。作るものにチェックを入れる。動いているものを上に、あとは新しい順
   const q = $("find").value.trim().toLowerCase();
-  const order = { running: 0, queued: 1, failed: 2 };
+  const order = { running: 0, queued: 1, failed: 2, new: 3, ready: 4 }; // 作り終えた回は下にまとめる
   const present = [...Object.keys(LANGS), "other"].filter((k) => s.episodes.some((e) => langKey(e) === k));
   if (lang && !present.includes(lang)) lang = "";
   $("langs").hidden = present.length < 2;
@@ -54,7 +54,7 @@ function render(s) {
     return b;
   }));
   const all = s.episodes.filter((e) => (!lang || langKey(e) === lang) && (!q || (e.name + " " + e.source).toLowerCase().includes(q)))
-    .map((e, i) => [order[e.status] ?? 3, i, e]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+    .map((e, i) => [order[e.status], i, e]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
   const shown = all.slice(0, limit);
   $("empty").hidden = s.episodes.length > 0;
   $("more").hidden = all.length <= limit;
@@ -62,8 +62,12 @@ function render(s) {
   $("episodes").replaceChildren(...shown.map((e) => {
     const li = document.createElement("li");
     li.className = e.status;
-    li.innerHTML = `<label><input type="checkbox"><span class="what"><span class="name"></span><span class="meta"></span><span class="error"></span></span></label><span class="status"></span><div class="track"><span></span></div>`;
+    li.innerHTML = `<label><input type="checkbox"><span class="what"><span class="name"></span><span class="meta"></span><span class="error"></span></span></label><button class="link again" type="button" hidden>Again</button><span class="status"></span><div class="track"><span></span></div>`;
     li.querySelector(".name").textContent = e.name;
+    // 作り終えた回は「Made」の印を付けて選べなくする。作り直すときだけ Again
+    const again = li.querySelector(".again");
+    again.hidden = e.status !== "ready";
+    again.onclick = async () => { if (confirm(`Make “${e.name}” again?`)) render(await api("/api/make", { names: [e.name] })); };
     li.querySelector(".meta").textContent = [e.source, e.notes ? "Notes" : e.subtitles ? "Subtitles" : "No subtitles"].filter(Boolean).join(", ");
     li.querySelector(".error").textContent = e.error;
     const box = li.querySelector("input");
@@ -72,7 +76,7 @@ function render(s) {
     box.onchange = () => { box.checked ? chosen.add(e.name) : chosen.delete(e.name); render(last); };
     const running = e.status === "running";
     const count = running && s.job.total ? ` ${s.job.done}/${s.job.total}` : "";
-    li.querySelector(".status").textContent = { new: "", queued: "Waiting", ready: "Ready", failed: "Failed", running: (s.job.step || "Starting") + count }[e.status];
+    li.querySelector(".status").textContent = { new: "", queued: "Waiting", ready: "Made", failed: "Failed", running: (s.job.step || "Starting") + count }[e.status];
     li.querySelector(".track span").style.width = (e.status === "ready" ? 100 : running ? progress(s.job) * 100 : 0) + "%";
     return li;
   }));
