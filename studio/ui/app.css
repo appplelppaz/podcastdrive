@@ -32,6 +32,8 @@ code { font-family: inherit; font-weight: 700; }
 .episodes .error { display: block; margin-top: 2px; color: var(--alarm); font-size: 15px; }
 .episodes .status { flex: none; color: var(--haze); font-size: 15px; font-variant-numeric: tabular-nums; }
 .episodes .ready .status, .episodes .running .status { color: var(--dial); font-weight: 700; }
+.episodes .ready .name { color: var(--haze); }
+.episodes .again { color: var(--haze); font-weight: 400; font-size: 15px; }
 .episodes .failed .status { color: var(--alarm); font-weight: 700; }
 .track { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--rule); overflow: hidden; }
 .track span { display: block; height: 100%; width: 0; background: var(--dial); transition: width .3s; }

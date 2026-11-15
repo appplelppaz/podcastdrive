@@ -29,6 +29,7 @@ HOME = os.path.expanduser("~")
 DATA = os.environ.get("STUDIO_DATA") or (os.path.join(HOME, "Library", "Application Support", "ListeningStudio")
                                           if platform.system() == "Darwin" else os.path.join(HOME, ".listening-studio"))
 CONFIG = os.path.join(DATA, "config.json")
+MADE = os.path.join(DATA, "made.json")  # 作り終えた回の記録。できたファイルを Ready から動かしても、作り直さないため
 DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "level": "B2",
             "voice": "jf_alpha", "notes": "keep"}  # notes: keep = すでにある .json の訳・解説を使う / new = 作り直す
 JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
@@ -71,6 +72,24 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=1)
 
 
+def load_made():
+    try:
+        with open(MADE, encoding="utf-8") as f:
+            made = json.load(f)
+        return made if isinstance(made, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def mark_made(name):
+    made = load_made()
+    made[name] = time.strftime("%Y-%m-%d")
+    os.makedirs(DATA, exist_ok=True)
+    with open(MADE + ".part", "w", encoding="utf-8") as f:
+        json.dump(made, f, ensure_ascii=False, indent=1)
+    os.replace(MADE + ".part", MADE)
+
+
 def log(msg):
     with lock:
         state["log"] = (state["log"] + [str(msg)])[-60:]
@@ -110,6 +129,7 @@ def worker():
             pipeline.make(ep, cfg["ready"], os.path.join(DATA, "work"), cfg["level"],
                           {"ja": cfg["voice"]} if engine == "kokoro" else None, engine, fresh=cfg["notes"] == "new",
                           log=log, step=step, cancelled=lambda: state["stop"])
+            mark_made(name)
             scan(cfg, force=True)
             log("Ready: " + name)
             with lock:
@@ -133,11 +153,12 @@ def snapshot():
         s = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v) for k, v in state.items()}
     eps = []
     found, problem = scan(cfg)
+    made = load_made()
     for e in found:
         status = ("running" if e["name"] == s["current"] else "queued" if e["name"] in s["queue"]
-                  else "failed" if e["name"] in s["failed"] else "ready" if e["done"] else "new")
+                  else "failed" if e["name"] in s["failed"] else "ready" if e["done"] or e["name"] in made else "new")
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
-                    "source": e["source"], "lang": e.get("lang", ""),
+                    "source": e["source"], "lang": e.get("lang", ""), "made": made.get(e["name"], ""),
                     "error": s["failed"].get(e["name"], "")})
     return {"config": cfg, "ready": [{"name": e["name"], "bytes": e["bytes"]} for e in pipeline.finished(cfg["ready"])],
             "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,
