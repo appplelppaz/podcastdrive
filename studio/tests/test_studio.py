@@ -157,6 +157,13 @@ class AppleTest(unittest.TestCase):
             open(os.path.join(lib, "[Demo Radio] Audio only (20260101).mp3"), "wb").close()  # 同じ名前はライブラリを使う
             eps, problem = pipeline.sources.collect(lib, home)
             self.assertEqual(problem, "")
+            # 言語: 言語のフォルダ名か、字幕の xml:lang。分からなければ空
+            lang = pipeline.sources.language_of
+            self.assertEqual(lang({"source": os.path.join("中国語", "Show"), "ttml": None}), "zh")
+            with open(os.path.join(ttml_dir, "transcript_111.ttml"), "w") as f:
+                f.write('<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="fr-FR"><body/></tt>')
+            self.assertEqual(lang({"source": "Apple Podcasts", "ttml": os.path.join(ttml_dir, "transcript_111.ttml")}), "fr")
+            self.assertEqual(lang({"source": "Apple Podcasts", "ttml": None}), "")
             got = {e["name"]: (e["source"], bool(e["ttml"])) for e in eps}
             self.assertEqual(got, {"[Demo Radio] With subtitles (20260101)": ("Apple Podcasts", True),
                                    "[Demo Radio] Audio only (20260101)": ("", False)})

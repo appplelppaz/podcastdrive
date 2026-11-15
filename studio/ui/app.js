@@ -5,6 +5,10 @@ let last = null;
 let editing = false;
 const chosen = new Set(); // これから作るエピソード
 let limit = 30;
+// 言語ごとに選ぶ（見つかった言語だけ並べる）
+const LANGS = { en: "English", zh: "Chinese", es: "Spanish", fr: "French" };
+const langKey = (e) => (LANGS[e.lang] ? e.lang : "other");
+let lang = localStorage.getItem("studio.lang") || "";
 const size = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(b / 1e6)) + " MB");
 
 async function api(path, body) {
@@ -39,7 +43,17 @@ function render(s) {
   // 自動で見つけた候補。作るものにチェックを入れる。動いているものを上に、あとは新しい順
   const q = $("find").value.trim().toLowerCase();
   const order = { running: 0, queued: 1, failed: 2 };
-  const all = s.episodes.filter((e) => !q || (e.name + " " + e.source).toLowerCase().includes(q))
+  const present = [...Object.keys(LANGS), "other"].filter((k) => s.episodes.some((e) => langKey(e) === k));
+  if (lang && !present.includes(lang)) lang = "";
+  $("langs").hidden = present.length < 2;
+  $("langs").replaceChildren(...["", ...present].map((k) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "tab", textContent: k ? LANGS[k] || "Other" : "All" });
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(k === lang));
+    b.onclick = () => { lang = k; limit = 30; localStorage.setItem("studio.lang", k); render(last); };
+    return b;
+  }));
+  const all = s.episodes.filter((e) => (!lang || langKey(e) === lang) && (!q || (e.name + " " + e.source).toLowerCase().includes(q)))
     .map((e, i) => [order[e.status] ?? 3, i, e]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
   const shown = all.slice(0, limit);
   $("empty").hidden = s.episodes.length > 0;

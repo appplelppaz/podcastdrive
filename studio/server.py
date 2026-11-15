@@ -137,7 +137,7 @@ def snapshot():
         status = ("running" if e["name"] == s["current"] else "queued" if e["name"] in s["queue"]
                   else "failed" if e["name"] in s["failed"] else "ready" if e["done"] else "new")
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
-                    "source": e["source"],
+                    "source": e["source"], "lang": e.get("lang", ""),
                     "error": s["failed"].get(e["name"], "")})
     return {"config": cfg, "ready": [{"name": e["name"], "bytes": e["bytes"]} for e in pipeline.finished(cfg["ready"])],
             "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,

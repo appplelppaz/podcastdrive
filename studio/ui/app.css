@@ -39,6 +39,10 @@ code { font-family: inherit; font-weight: 700; }
 .episodes input[type=checkbox] { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--dial); }
 input[type=search] { font: inherit; width: 220px; min-height: 40px; padding: 0 12px; background: var(--night); color: var(--lamp);
   border: 1px solid var(--rule); border-radius: 20px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0 24px; margin: 4px 0 2px; }
+.tab { min-height: 40px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--haze);
+  font: inherit; font-weight: 700; cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--lamp); border-bottom-color: var(--dial); }
 #more { display: block; margin-top: 6px; }
 .log { margin: 10px 0 0; min-height: 1.5em; color: var(--haze); font-size: 15px; white-space: pre-line; }
 
