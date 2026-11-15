@@ -14,7 +14,7 @@ docs/     デザインの計画
 1. **Mac**: `Listening Studio.command` をダブルクリックする。この Mac にある音声と字幕を自動で探して、候補に並べる。
    - デスクトップの `Podcasts` フォルダ（中のフォルダもすべて）
    - Apple Podcasts のアプリでダウンロードした音声と、自動で作られた字幕
-2. **Mac**: 作りたい回にチェックを入れて **Make** を押す。
+2. **Mac**: 言語のタブ（English・Chinese・Spanish・French）で絞り、作りたい回にチェックを入れて **Make** を押す。
    `Ready` フォルダに `名前.listening.json` と `名前.listening.m4a` ができる。
 3. **iPhone・iPad**: その2つのファイルを iPhone から見える場所（Google ドライブなど）に置き、Listening の **Add** で選ぶ。
 

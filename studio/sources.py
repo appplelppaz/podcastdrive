@@ -31,6 +31,31 @@ def find_library(home=None):
     return ""
 
 
+LANG_FOLDERS = {"英語": "en", "english": "en", "中国語": "zh", "chinese": "zh", "スペイン語": "es", "spanish": "es",
+                "フランス語": "fr", "french": "fr"}
+_ttml_lang = {}
+
+
+def language_of(ep):
+    """エピソードの言語（en・zh・es・fr など。分からなければ空文字）。言語のフォルダ名か、字幕の xml:lang で決める。"""
+    top = (ep.get("source") or "").replace("\\", "/").split("/")[0].lower()
+    if top in LANG_FOLDERS:
+        return LANG_FOLDERS[top]
+    path = ep.get("ttml")
+    if not path:
+        return ""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)  # 同じファイルは一度だけ読む
+        if key not in _ttml_lang:
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                m = re.search(r'xml:lang="([A-Za-z]{2,3})', f.read(4000))
+            _ttml_lang[key] = m.group(1).lower() if m else ""
+        return _ttml_lang[key]
+    except OSError:
+        return ""
+
+
 def stem_of(name):
     return re.sub(r"\.(listening\.json|listening\.m4a|fix\.json|json|ttml|xml|mp3|m4a|aac|wav)$", "", name, flags=re.I)
 
@@ -166,4 +191,6 @@ def collect(library, home=None):
         problem = "permission"
     except Exception as err:  # アプリの更新でデータの形が変わったときなど
         problem = str(err)[:200]
+    for e in eps.values():
+        e["lang"] = language_of(e)
     return sorted(eps.values(), key=lambda e: -e["time"]), problem
