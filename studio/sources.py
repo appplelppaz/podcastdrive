@@ -31,29 +31,80 @@ def find_library(home=None):
     return ""
 
 
-LANG_FOLDERS = {"英語": "en", "english": "en", "中国語": "zh", "chinese": "zh", "スペイン語": "es", "spanish": "es",
-                "フランス語": "fr", "french": "fr"}
-_ttml_lang = {}
+LANG_FOLDERS = {"英語": "en", "english": "en", "中国語": "zh", "chinese": "zh", "中文": "zh", "スペイン語": "es", "spanish": "es",
+                "español": "es", "フランス語": "fr", "french": "fr", "français": "fr"}
+LANG_FOLDER_NAMES = {"en": "英語", "zh": "中国語", "es": "スペイン語", "fr": "フランス語"}  # 新しく作るときのフォルダ名
+_head = {}
+# 題名から言語を見分けるための、よく出る短い語
+HINTS = {
+    "es": set("el la los las un una unos de del al y o que en es por para con sin como más pero su sus lo se qué cómo "
+              "está son hay muy este esta nos mi tu sobre entre cuando porque también hacia desde".split()),
+    "fr": set("le la les un une des du de au aux et ou que qui dans est pour avec sans sur pas plus mais son sa ses ce "
+              "cette nous vous je il elle on comment pourquoi très être fait entre chez où quand aussi".split()),
+    "en": set("the a an of and or to in is are was for with without on at by from this that these how why what when "
+              "who your our my not but be has have will can about into after over new".split()),
+}
+
+
+def _read_head(path, size=4000):
+    """ファイルの先頭だけを読む（同じファイルは一度だけ）。"""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)
+        if key not in _head:
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                _head[key] = f.read(size)
+        return _head[key]
+    except OSError:
+        return ""
+
+
+def channel_of(name):
+    m = re.match(r"^\[(.+?)\]", name)
+    return m.group(1) if m else ""
+
+
+def language_from_text(text):
+    """題名や番組名の文字と語から言語を見分ける。決め手がなければ空文字。"""
+    if re.search(r"[\u3040-\u30ff]", text):
+        return "ja"
+    if re.search(r"[\u3400-\u9fff]", text):
+        return "zh"
+    if re.search(r"[\uac00-\ud7af]", text):
+        return "ko"
+    low = text.lower()
+    words = re.findall(r"[a-zà-ÿœ']+", low)
+    if not words:
+        return ""
+    score = {k: sum(1 for w in words if w in v) for k, v in HINTS.items()}
+    score["es"] += 2 * len(re.findall(r"[ñ¿¡]|ción\b|[áíóú]", low)) + sum(1 for w in words if len(w) > 4 and re.search(r"(os|as|dad|mente)$", w))
+    score["fr"] += sum(1 for w in words if len(w) > 4 and re.search(r"(eux|eau|ait|ais|oir|ique)$", w))
+    score["fr"] += 2 * len(re.findall(r"[çœèêëàâîïôûù]|\b[ldjcnsmt]['’][a-zà-ÿ]|eux\b|tion\b(?<!ation)", low))
+    best = max(score, key=score.get)
+    others = sorted((v for k, v in score.items() if k != best), reverse=True)
+    if score[best] == 0:
+        return "en" if len(words) >= 2 and low.isascii() else ""  # ふつうの英字だけの題名は英語とみなす
+    return best if score[best] > others[0] else ""
 
 
 def language_of(ep):
-    """エピソードの言語（en・zh・es・fr など。分からなければ空文字）。言語のフォルダ名か、字幕の xml:lang で決める。"""
-    top = (ep.get("source") or "").replace("\\", "/").split("/")[0].lower()
-    if top in LANG_FOLDERS:
-        return LANG_FOLDERS[top]
-    path = ep.get("ttml")
-    if not path:
-        return ""
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime, st.st_size)  # 同じファイルは一度だけ読む
-        if key not in _ttml_lang:
-            with open(path, encoding="utf-8", errors="ignore") as f:
-                m = re.search(r'xml:lang="([A-Za-z]{2,3})', f.read(4000))
-            _ttml_lang[key] = m.group(1).lower() if m else ""
-        return _ttml_lang[key]
-    except OSError:
-        return ""
+    """エピソードの言語（en・zh・es・fr など。分からなければ空文字）。確かなものから順に見る:
+    言語のフォルダ名 → 字幕の xml:lang → .json の sourceLanguage → Apple Podcasts の番組の言語 → 題名の文字と語。"""
+    for part in (ep.get("source") or "").replace("\\", "/").split("/"):
+        if part.lower() in LANG_FOLDERS:
+            return LANG_FOLDERS[part.lower()]
+    if ep.get("ttml"):
+        m = re.search(r'xml:lang="([A-Za-z]{2,3})', _read_head(ep["ttml"]))
+        if m and m.group(1).lower() != "und":
+            return m.group(1).lower()
+    if ep.get("json"):
+        m = re.search(r'"sourceLanguage"\s*:\s*"([A-Za-z]{2,3})', _read_head(ep["json"]))
+        if m:
+            return m.group(1).lower()
+    if ep.get("show_lang"):
+        return ep["show_lang"]
+    ep["lang_guess"] = True  # ここから下は題名からの推測（同じ番組の確かな回があれば、そちらに合わせる）
+    return language_from_text(ep.get("name", ""))
 
 
 def stem_of(name):
@@ -152,6 +203,7 @@ def apple_episodes(home=None):
         c_pod, c_pub = pick(ep_cols, "ZPODCAST", "ZPODCASTUUID"), pick(ep_cols, "ZPUBDATE", "ZPUBLISHDATE")
         c_uuid, c_store = pick(ep_cols, "ZUUID"), pick(ep_cols, "ZSTORETRACKID")
         c_ptitle = pick(pod_cols, "ZTITLE", "ZCLEANEDTITLE")
+        c_plang = pick(pod_cols, "ZLANGUAGE", "ZSHOWLANGUAGE")
         ti = ["e." + c for c in ("ZTRANSCRIPTIDENTIFIER", "ZFREETRANSCRIPTIDENTIFIER", "ZENTITLEDTRANSCRIPTIDENTIFIER") if c in ep_cols]
         ti_expr = ("COALESCE(" + ", ".join(ti) + ")") if len(ti) > 1 else (ti[0] if ti else "NULL")
         if not (c_title and c_asset and c_pod and c_ptitle):
@@ -159,7 +211,8 @@ def apple_episodes(home=None):
         rows = cur.execute(f"""
             SELECT e.{c_title} AS title, e.{c_asset} AS asset, p.{c_ptitle} AS channel,
                    {"e." + c_pub if c_pub else "NULL"} AS pub, {"e." + c_uuid if c_uuid else "NULL"} AS uuid,
-                   {"e." + c_store if c_store else "NULL"} AS store_id, {ti_expr} AS transcript_id
+                   {"e." + c_store if c_store else "NULL"} AS store_id, {ti_expr} AS transcript_id,
+                   {"p." + c_plang if c_plang else "NULL"} AS show_lang
             FROM ZMTEPISODE e LEFT JOIN ZMTPODCAST p ON e.{c_pod} = p.Z_PK
             WHERE e.{c_asset} IS NOT NULL AND e.{c_asset} != ''""").fetchall()
         conn.close()
@@ -176,7 +229,8 @@ def apple_episodes(home=None):
         name = "[%s] %s" % (_sanitize(r["channel"] or "Unknown"), _sanitize(r["title"] or "Untitled")) + (" (%s)" % date if date else "")
         ttml = _find_ttml(ep, ttml_root)
         out.append({"name": name, "audio": str(audio), "ttml": str(ttml) if ttml else None, "json": None,
-                    "source": "Apple Podcasts", "time": audio.stat().st_mtime})
+                    "source": "Apple Podcasts", "time": audio.stat().st_mtime, "apple": True,
+                    "show_lang": re.split(r"[-_]", str(r["show_lang"] or ""))[0].lower()[:3]})
     return out
 
 
@@ -193,4 +247,13 @@ def collect(library, home=None):
         problem = str(err)[:200]
     for e in eps.values():
         e["lang"] = language_of(e)
+    # 題名から推測しただけの回は、同じ番組の確かな回（フォルダ名・字幕・JSON で分かった回）の言語に合わせる
+    by_channel = {}
+    for e in eps.values():
+        if e["lang"] and not e.get("lang_guess") and channel_of(e["name"]):
+            by_channel.setdefault(channel_of(e["name"]), []).append(e["lang"])
+    for e in eps.values():
+        langs = by_channel.get(channel_of(e["name"]))
+        if langs and e.get("lang_guess"):
+            e["lang"] = max(set(langs), key=langs.count)
     return sorted(eps.values(), key=lambda e: -e["time"]), problem

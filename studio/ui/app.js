@@ -9,7 +9,6 @@ let limit = 30;
 const LANGS = { en: "English", zh: "Chinese", es: "Spanish", fr: "French" };
 const langKey = (e) => (LANGS[e.lang] ? e.lang : "other");
 let lang = localStorage.getItem("studio.lang") || "";
-const size = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.round(b / 1e6)) + " MB");
 
 async function api(path, body) {
   const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -62,11 +61,12 @@ function render(s) {
   $("episodes").replaceChildren(...shown.map((e) => {
     const li = document.createElement("li");
     li.className = e.status;
-    li.innerHTML = `<label><input type="checkbox"><span class="what"><span class="name"></span><span class="meta"></span><span class="error"></span></span></label><button class="link again" type="button" hidden>Again</button><span class="status"></span><div class="track"><span></span></div>`;
+    li.innerHTML = `<label><input type="checkbox"><span class="what"><span class="name"></span><span class="meta"></span><span class="error"></span></span></label><button class="link again show" type="button" hidden>Show</button><button class="link again" type="button" hidden>Again</button><span class="status"></span><div class="track"><span></span></div>`;
     li.querySelector(".name").textContent = e.name;
     // 作り終えた回は「Made」の印を付けて選べなくする。作り直すときだけ Again
-    const again = li.querySelector(".again");
-    again.hidden = e.status !== "ready";
+    const again = li.querySelector(".again:not(.show)"), showBtn = li.querySelector(".show");
+    again.hidden = showBtn.hidden = e.status !== "ready";
+    showBtn.onclick = () => api("/api/show", { name: e.name });
     again.onclick = async () => { if (confirm(`Make “${e.name}” again?`)) render(await api("/api/make", { names: [e.name] })); };
     li.querySelector(".meta").textContent = [e.source, e.notes ? "Notes" : e.subtitles ? "Subtitles" : "No subtitles"].filter(Boolean).join(", ");
     li.querySelector(".error").textContent = e.error;
@@ -81,16 +81,6 @@ function render(s) {
     return li;
   }));
   $("log").textContent = busy || s.episodes.some((e) => e.status === "failed") ? s.log.slice(-2).join("\n") : "";
-
-  // できあがったもの
-  $("readyEmpty").hidden = s.ready.length > 0;
-  $("readyList").replaceChildren(...s.ready.map((e) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="what"><span class="name"></span></span><span class="status"></span><div class="track"><span></span></div>`;
-    li.querySelector(".name").textContent = e.name;
-    li.querySelector(".status").textContent = size(e.bytes);
-    return li;
-  }));
 
   if (!editing) {
     $("level").value = s.config.level;
@@ -111,7 +101,6 @@ $("make").onclick = async () => { const names = [...chosen]; chosen.clear(); ren
 $("find").oninput = () => { limit = 30; if (last) render(last); };
 $("more").onclick = () => { limit += 100; render(last); };
 $("stop").onclick = async () => render(await api("/api/stop", {}));
-for (const b of document.querySelectorAll("[data-open]")) b.onclick = () => api("/api/open", { folder: b.dataset.open });
 for (const id of ["level", "voice", "notes", "library", "ready"]) {
   $(id).addEventListener("focus", () => { editing = true; });
   $(id).addEventListener("change", async () => { editing = false; render(await api("/api/config", { [id]: $(id).value })); });
