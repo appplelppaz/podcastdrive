@@ -126,7 +126,7 @@ def worker():
                     state.update(step=s, done=done, total=total)
 
             engine = engine_name()
-            pipeline.make(ep, cfg["ready"], os.path.join(DATA, "work"), cfg["level"],
+            pipeline.make(ep, ep["out"], os.path.join(DATA, "work"), cfg["level"],
                           {"ja": cfg["voice"]} if engine == "kokoro" else None, engine, fresh=cfg["notes"] == "new",
                           log=log, step=step, cancelled=lambda: state["stop"])
             mark_made(name)
@@ -159,8 +159,9 @@ def snapshot():
                   else "failed" if e["name"] in s["failed"] else "ready" if e["done"] or e["name"] in made else "new")
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
                     "source": e["source"], "lang": e.get("lang", ""), "made": made.get(e["name"], ""),
+                    "out": os.path.relpath(e["out"], cfg["library"]) if cfg["library"] and e["out"].startswith(cfg["library"]) else e["out"],
                     "error": s["failed"].get(e["name"], "")})
-    return {"config": cfg, "ready": [{"name": e["name"], "bytes": e["bytes"]} for e in pipeline.finished(cfg["ready"])],
+    return {"config": cfg,
             "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,
             "checks": dict(checks(), apple=problem, library=bool(cfg["library"]) and os.path.isdir(cfg["library"])),
             "job": {"name": s["current"], "step": s["step"], "done": s["done"], "total": s["total"]}, "log": s["log"][-12:]}
@@ -241,10 +242,14 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("notes") in ("keep", "new"):
                 cfg["notes"] = body["notes"]
             save_config(cfg)
-        elif path == "/api/open":
-            folder = load_config().get(body.get("folder"))
-            if folder and os.path.isdir(folder) and shutil.which("open"):
-                subprocess.run(["open", folder], check=False)
+        elif path == "/api/show":
+            # できたファイルを Finder で見せる
+            cfg = load_config()
+            ep = next((e for e in scan(cfg)[0] if e["name"] == body.get("name")), None)
+            if ep and shutil.which("open"):
+                target = pipeline._out_stem(ep["name"]) + ".listening.m4a"
+                hit = next((os.path.join(d, target) for d in (ep["out"], cfg["ready"]) if os.path.exists(os.path.join(d, target))), None)
+                subprocess.run(["open", "-R", hit] if hit else ["open", ep["out"] if os.path.isdir(ep["out"]) else cfg["ready"]], check=False)
         else:
             return self.send({"error": "not found"}, code=404)
         self.send(snapshot())

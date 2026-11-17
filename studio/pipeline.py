@@ -43,12 +43,28 @@ def finished(folder):
     return out
 
 
+def out_dir(ep, library, ready):
+    """できたファイルを置くフォルダ。
+    ライブラリの回は元の音声と同じフォルダ。Apple Podcasts の回はライブラリの「言語/番組名」。言語が分からなければ ready。"""
+    if not ep.get("apple"):
+        return os.path.dirname(ep["audio"])
+    folder = sources.LANG_FOLDER_NAMES.get(ep.get("lang"))
+    if not folder or not library or not os.path.isdir(library):
+        return ready
+    for name in sorted(os.listdir(library)):  # すでにある言語のフォルダ（English など別の名前でも）を使う
+        if sources.LANG_FOLDERS.get(name.lower()) == ep["lang"] and os.path.isdir(os.path.join(library, name)):
+            folder = name
+            break
+    return os.path.join(library, folder, sources.channel_of(ep["name"]) or "Podcast")
+
+
 def scan(library, ready, home=None):
-    """(エピソードの一覧, Apple Podcasts を読めなかった理由)。できあがっているかも付ける。"""
+    """(エピソードの一覧, Apple Podcasts を読めなかった理由)。置き場所（out）と、できあがっているか（done）も付ける。"""
     eps, problem = sources.collect(library, home)
-    have = {n for n in os.listdir(ready) if n.endswith(".listening.m4a")} if os.path.isdir(ready) else set()
     for e in eps:
-        e["done"] = _out_stem(e["name"]) + ".listening.m4a" in have
+        e["out"] = out_dir(e, library, ready)
+        target = _out_stem(e["name"]) + ".listening.m4a"
+        e["done"] = any(os.path.exists(os.path.join(d, target)) for d in {e["out"], ready})
     return eps, problem
 
 

@@ -62,6 +62,21 @@ def clean_ja(text):
     return t.strip(" 、")
 
 
+GLOSS = re.compile(r"、([a-zà-ÿ][A-Za-zÀ-ÿ'’\-]*(?: [A-Za-zÀ-ÿ'’\-]+)*)(?=、)、?|[（(]([A-Za-zÀ-ÿ'’\- ]+)[）)]|「([a-zà-ÿ][A-Za-zÀ-ÿ'’\- ]*)」")
+HAS_JA = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
+
+
+def strip_glosses(text, original):
+    """訳の中に挟まった原語（「致命的、damning、だと思う」「行為（unacceptable conduct）」）を外す。
+    原文にある語句で、小文字で始まるもの（固有名詞でないもの）だけ。"""
+    low = (original or "").lower()
+
+    def drop(m):
+        run = next(g for g in m.groups() if g)
+        return "" if run.strip().lower() in low else m.group(0)
+    return GLOSS.sub(drop, text)
+
+
 def clean_term(term):
     """外国語の見出し語から読み上げに不要な記号を除く。"""
     t = term
@@ -294,6 +309,8 @@ def vocab_runs(item, source_lang, target_lang="ja", original=""):
 def speak_listening(sp, source_lang, target_lang="ja"):
     """読み上げ用の指定（speak）から聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を整える）。"""
     vocab = [{"term": term, "meaning": plain_meaning(clean_ja(meaning)), "note": ""} for term, meaning in sp["vocab"]]
+    if lang_base(target_lang) == "ja":  # 日本語の意味がない語彙は読まない（原語だけが読まれてしまうので）
+        vocab = [v for v in vocab if HAS_JA.search(v["meaning"])]
     runs = []
     for lang, text in sp["grammar"]:
         is_target = lang_base(lang) == lang_base(target_lang)
@@ -351,7 +368,7 @@ def build_parts(translation_text, listening, source_lang, target_lang="ja", orig
     parts = [{"type": "original", "role": "first"}]
     if translation_text:
         parts.append({"type": "cue", "cue": "translation", "group": "translation"})
-        t = clean_ja(translation_text)
+        t = clean_ja(strip_glosses(translation_text, original) if lang_base(source_lang) in LATIN_LANGS else translation_text)
         parts.append(_speech("translation", target_lang, t))
     if listening.get("vocab"):
         parts.append({"type": "cue", "cue": "vocab", "group": "vocab"})

@@ -51,12 +51,25 @@ class AnnotateTest(unittest.TestCase):
         self.assertEqual(notes[2]["speak"]["vocab"][-1], ["look for", "探す"])  # 意味は最初の項目だけ
         self.assertEqual(notes[2]["speak"]["grammar"], [["en", "looking for"], ["ja", "が進行形です。"]])  # 知らない言語は ja に
 
+    def test_cleaning(self):
+        # 訳に挟まった原語を外し、日本語の意味がない語彙は外す
+        reply = '[{"id": 1, "translation": "かなり致命的、damning、だと思う。", "words": [' \
+                '{"word": "damning", "meaning": "", "pos": "形容詞"}, {"word": "quite", "meaning": "quite, rather", "pos": "副詞"},' \
+                '{"word": "walk off the job", "meaning": "walk off、仕事を放り出す", "pos": "句動詞"}], "grammar": "", "say": []}]'
+        notes = annotate.annotate([{"id": 1, "original": "It is quite damning when people walk off the job."}], "en",
+                                  ask=lambda p: reply, log=lambda *a: None)
+        self.assertEqual(notes[1]["translation"], "かなり致命的だと思う。")
+        self.assertEqual([w["word"] for w in notes[1]["words"]], ["walk off the job"])
+        self.assertEqual(notes[1]["speak"]["vocab"], [["walk off the job", "仕事を放り出す"]])
+
     @unittest.skipUnless(annotate._zipf("the", "en"), "wordfreq が必要")
     def test_frequency(self):
         notes = annotate.annotate(self.SENTS, "en", "B2", ask=fake_claude(), log=lambda *a: None)
         self.assertNotIn("the", [w["word"] for w in notes[2]["words"]])  # 易しすぎる語の説明は外す
         self.assertEqual(annotate.rare_words("The hyphae retract in Paris today.", "en"), ["hyphae", "retract"])
         self.assertFalse(annotate.too_easy("have a hard time", "en"))  # 熟語は外さない
+        self.assertTrue(annotate.too_easy("don't know if", "en"))  # 足せば分かる易しい句は外す
+        self.assertFalse(annotate.too_easy("look for", "en", pos="句動詞"))
 
     def test_retry_and_cache(self):
         calls = []
@@ -115,6 +128,12 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual([s for i, s in enumerate(steps) if i == 0 or s != steps[i - 1]], ["Notes", "Voice"])
             done_of = lambda *a: {e["name"]: e["done"] for e in pipeline.scan(lib, *a, home=home)[0]}  # noqa: E731
             self.assertEqual(done_of(ready), {name: True, "lonely": False})
+            for f in os.listdir(ready):  # 音声と同じフォルダに置いたものも「できあがり」
+                shutil.move(os.path.join(ready, f), inbox)
+            self.assertEqual(done_of(ready), {name: True, "lonely": False})
+            for f in os.listdir(inbox):
+                if ".listening." in f:
+                    shutil.move(os.path.join(inbox, f), ready)
             self.assertEqual([e["name"] for e in pipeline.finished(ready)], ["Morning market check (2026-01-01)"])
 
     def test_stop(self):
@@ -164,6 +183,24 @@ class AppleTest(unittest.TestCase):
                 f.write('<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="fr-FR"><body/></tt>')
             self.assertEqual(lang({"source": "Apple Podcasts", "ttml": os.path.join(ttml_dir, "transcript_111.ttml")}), "fr")
             self.assertEqual(lang({"source": "Apple Podcasts", "ttml": None}), "")
+            self.assertEqual(lang({"source": os.path.join("Shows", "English", "BBC"), "ttml": None}), "en")  # 途中のフォルダ名でもよい
+            self.assertEqual(lang({"source": "x", "show_lang": "es"}), "es")
+            text = pipeline.sources.language_from_text
+            self.assertEqual([text(t) for t in ("[故事FM] 我在北京送外卖", "[Radio Ambulante] El niño que no quería hablar",
+                                                "[Hoy Hablamos] Noticias de la semana", "[InnerFrench] Les Français et le travail",
+                                                "[The Daily] What the election means", "[BBC] Newshour", "x")],
+                             ["zh", "es", "es", "fr", "en", "en", ""])
+            # できたファイルの置き場所: ライブラリの回は音声と同じフォルダ、Apple の回は「言語/番組名」、言語が分からなければ ready
+            ready = os.path.join(home, "Ready")
+            eps, _ = pipeline.sources.collect(lib, home)  # 字幕に言語を書いた後で、もう一度探す
+            by = {e["name"]: e for e in eps}
+            self.assertEqual(by["[Demo Radio] With subtitles (20260101)"]["lang"], "fr")
+            self.assertEqual(pipeline.out_dir(by["[Demo Radio] With subtitles (20260101)"], lib, ready), os.path.join(lib, "フランス語", "Demo Radio"))
+            self.assertEqual(pipeline.out_dir(by["[Demo Radio] Audio only (20260101)"], lib, ready), lib)
+            os.makedirs(os.path.join(lib, "French"))  # すでにある言語のフォルダを使う
+            self.assertEqual(pipeline.out_dir(by["[Demo Radio] With subtitles (20260101)"], lib, ready), os.path.join(lib, "French", "Demo Radio"))
+            self.assertEqual(pipeline.out_dir({"apple": True, "lang": "", "name": "[X] y", "audio": "a"}, lib, ready), ready)
+            self.assertEqual(by["[Demo Radio] Audio only (20260101)"]["lang"], "fr")  # 同じ番組のほかの回に合わせる
             got = {e["name"]: (e["source"], bool(e["ttml"])) for e in eps}
             self.assertEqual(got, {"[Demo Radio] With subtitles (20260101)": ("Apple Podcasts", True),
                                    "[Demo Radio] Audio only (20260101)": ("", False)})

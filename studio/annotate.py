@@ -15,6 +15,8 @@ BATCH = 30
 LEVELS = {"B1": (4.3, 5.4), "B2": (3.8, 5.0), "C1": (3.3, 4.7)}  # (これ未満は難しい, これ以上は易しい) Zipf 頻度
 LATIN_WORD = re.compile(r"[A-Za-zÀ-ɏḀ-ỿ]+(?:['’-][A-Za-zÀ-ɏḀ-ỿ]+)*")
 HAN_RUN = re.compile(r"[㐀-鿿]+")
+HAS_JA = re.compile(r"[぀-ヿ㐀-鿿]")
+LITERAL_POS = ("熟語", "慣用", "句動詞", "成句", "イディオム", "idiom", "phrasal")
 
 
 def lang_base(lang):
@@ -54,14 +56,21 @@ def rare_words(text, lang, level="B2"):
     return out
 
 
-def too_easy(word, lang, level="B2"):
-    """1語で、このレベルなら知っているはずの語か（熟語・句は対象外）。"""
+def too_easy(word, lang, level="B2", pos=""):
+    """このレベルなら知っているはずの語か。
+    1語: 頻度が高い。句: 全部の語がとても易しく、熟語・句動詞・慣用句でもない（「don't know if」など）。"""
     lang = lang_base(lang)
     w = word.strip()
-    if not w or (lang != "zh" and len(w.split()) > 1) or (lang == "zh" and len(w) > 2):
+    if not w or (lang == "zh" and len(w) > 2):
         return False
-    z = _zipf(w.lower(), lang)
-    return z is not None and z >= LEVELS.get(level, LEVELS["B2"])[1]
+    tokens = w.split() if lang != "zh" else [w]
+    if len(tokens) == 1:
+        z = _zipf(w.lower(), lang)
+        return z is not None and z >= LEVELS.get(level, LEVELS["B2"])[1]
+    if len(tokens) > 4 or any(p in (pos or "").lower() for p in LITERAL_POS):
+        return False
+    zs = [_zipf(t.lower().strip(".,!?"), lang) for t in tokens]
+    return all(z is not None and z >= 5.8 for z in zs)
 
 
 def claude_cli(prompt, model=None, timeout=900):
@@ -115,13 +124,25 @@ def check_batch(items, reply):
     return None
 
 
-def _clean(r, lang, level):
-    """1文ぶんの返事を、教材 JSON の形に整える。易しすぎる語の説明は外す。"""
+def _short_meaning(meaning):
+    """読み上げる意味: 「、」で区切った最初の、日本語を含む項目。"""
+    for part in re.split(r"[、,，]", meaning):
+        if HAS_JA.search(part):
+            return part.strip()
+    return ""
+
+
+def _clean(r, lang, level, original=""):
+    """1文ぶんの返事を、教材 JSON の形に整える。
+    易しすぎる語と、日本語の意味がない語の説明は外す。訳に挟まった原語は外す。"""
+    from listening.speech import strip_glosses
+    if "say" not in r and isinstance(r.get("speak"), dict):  # 以前の形で保存した途中の結果
+        r = dict(r, say=r["speak"].get("grammar") or [])
     words = []
     for w in r.get("words") or []:
-        if not isinstance(w, dict) or not str(w.get("word", "")).strip() or not str(w.get("meaning", "")).strip():
+        if not isinstance(w, dict) or not str(w.get("word", "")).strip() or not _short_meaning(str(w.get("meaning", ""))):
             continue
-        if too_easy(str(w["word"]), lang, level):
+        if too_easy(str(w["word"]), lang, level, str(w.get("pos", ""))):
             continue
         entry = {"word": str(w["word"]).strip(), "meaning": str(w["meaning"]).strip(), "pos": str(w.get("pos", "")).strip()}
         if lang_base(lang) == "zh" and w.get("reading"):
@@ -137,8 +158,11 @@ def _clean(r, lang, level):
         say = []
     elif not say:
         say = [["ja", grammar]]
-    vocab = [[w["word"], re.split(r"[、,，]", w["meaning"])[0].strip()] for w in words[:2]]
-    return {"translation": r["translation"].strip(), "words": words, "grammar": grammar,
+    vocab = [[w["word"], _short_meaning(w["meaning"])] for w in words[:2]]
+    translation = r["translation"].strip()
+    if lang_base(lang) in ("en", "es", "fr", "de", "it", "pt"):
+        translation = strip_glosses(translation, original)
+    return {"translation": translation, "words": words, "grammar": grammar,
             "speak": {"vocab": vocab, "grammar": say}, "fix": str(r.get("fix") or "").strip()}
 
 
@@ -149,12 +173,15 @@ def annotate(sentences, lang, level="B2", ask=claude_cli, log=print, progress=No
     """
     with open(os.path.join(HERE, "guide.md"), encoding="utf-8") as f:
         guide = f.read().replace("{level}", level).replace("{lang}", lang_base(lang))
-    done = {}
+    # 途中の結果は Claude の返事のまま保存し、返すときに整える（整え方を直したら、作り直しで反映される）
+    raw = {}
     if cache_path and os.path.exists(cache_path):
         with open(cache_path, encoding="utf-8") as f:
             saved = json.load(f)
         if saved.get("level") == level:
-            done = {int(k): v for k, v in saved.get("items", {}).items()}
+            raw = {int(k): v for k, v in saved.get("items", {}).items()}
+    originals = {s["id"]: s["original"] for s in sentences}
+    done = raw
     todo = [s for s in sentences if s["id"] not in done]
     total = len(sentences)
     for i in range(0, len(todo), BATCH):
@@ -177,11 +204,11 @@ def annotate(sentences, lang, level="B2", ask=claude_cli, log=print, progress=No
         if problem:
             raise RuntimeError("Could not get notes for sentences %d–%d: %s" % (chunk[0]["id"], chunk[-1]["id"], problem))
         for r in reply:
-            done[r["id"]] = _clean(r, lang, level)
+            done[r["id"]] = r
         if cache_path:
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump({"level": level, "items": done}, f, ensure_ascii=False)
         if progress:
             progress(len(done), total)
         log("Notes %d/%d" % (len(done), total))
-    return done
+    return {i: _clean(r, lang, level, originals.get(i, "")) for i, r in done.items() if i in originals}

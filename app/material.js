@@ -429,8 +429,18 @@ function autoListening(seg, src) {
 }
 
 // 読み上げ用の指定（speak）から、聞き流しの語彙・文法を作る。言語は指定のまま（日本語の文だけ記号を読み上げ向けに整える）
+// 訳の中に挟まった原語（「致命的、damning、だと思う」「行為（unacceptable conduct）」）を外す。
+// 原文にある語句で、小文字で始まるもの（固有名詞でないもの）だけ。studio/listening/speech.py の strip_glosses と同じ
+const GLOSS = /、([a-zà-ÿ][A-Za-zÀ-ÿ'’\-]*(?: [A-Za-zÀ-ÿ'’\-]+)*)(?=、)、?|[（(]([A-Za-zÀ-ÿ'’\- ]+)[）)]|「([a-zà-ÿ][A-Za-zÀ-ÿ'’\- ]*)」/g;
+const HAS_JA = /[\u3040-\u30ff\u3400-\u9fff]/;
+export function stripGlosses(text, original) {
+  const low = (original || "").toLowerCase();
+  return text.replace(GLOSS, (m, a, b, c) => (low.includes((a || b || c).trim().toLowerCase()) ? "" : m));
+}
+
 function speakListening(sp, src, tgt) {
-  const vocab = sp.vocab.map(([term, meaning]) => ({ term, meaning: plainMeaning(cleanJa(meaning)), note: "" }));
+  let vocab = sp.vocab.map(([term, meaning]) => ({ term, meaning: plainMeaning(cleanJa(meaning)), note: "" }));
+  if (langBase(tgt) === "ja") vocab = vocab.filter((v) => HAS_JA.test(v.meaning)); // 日本語の意味がない語彙は読まない
   const grammarRuns = [];
   for (const [lang, text] of sp.grammar) {
     const t = langBase(lang) === langBase(tgt) ? cleanJa(text) : strip(text.replace(/[「」『』]/g, ""), " ");
@@ -527,7 +537,7 @@ function buildParts(translation, li, src, tgt, original = "") {
   const parts = [{ type: "original", role: "first" }];
   if (translation) {
     parts.push({ type: "cue", cue: "translation", group: "translation" });
-    parts.push(speech("translation", tgt, cleanJa(translation)));
+    parts.push(speech("translation", tgt, cleanJa(LATIN_LANGS.has(langBase(src)) ? stripGlosses(translation, original) : translation)));
   }
   if (li.vocab && li.vocab.length) {
     parts.push({ type: "cue", cue: "vocab", group: "vocab" });

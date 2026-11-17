@@ -15,7 +15,7 @@ docs/     デザインの計画
    - デスクトップの `Podcasts` フォルダ（中のフォルダもすべて）
    - Apple Podcasts のアプリでダウンロードした音声と、自動で作られた字幕
 2. **Mac**: 言語のタブ（English・Chinese・Spanish・French）で絞り、作りたい回にチェックを入れて **Make** を押す。
-   `Ready` フォルダに `名前.listening.json` と `名前.listening.m4a` ができる。
+   `名前.listening.json` と `名前.listening.m4a` ができる。置き場所は Podcasts フォルダの「言語 → 番組名」の中（下の表）。
 3. **iPhone・iPad**: その2つのファイルを iPhone から見える場所（Google ドライブなど）に置き、Listening の **Add** で選ぶ。
 
 ## Listening Studio（Mac）
@@ -65,9 +65,16 @@ docs/     デザインの計画
 | --- | --- | --- |
 | Podcasts | 自動で探す（`~/Desktop/Podcasts` か `~/Desktop/Public/Podcasts`） | 音声（`.mp3` `.m4a`）・字幕（`.ttml`）・`.json`。同じ名前のものが1つのエピソード |
 | Apple Podcasts | アプリが作るフォルダ（読むだけ。変えない） | ダウンロードした音声と字幕。名前は `[番組名] 題名 (配信日)` にする |
-| Ready | `~/Desktop/Listening/Ready` | できあがった2つのファイル |
+| Other files | `~/Desktop/Listening/Ready` | 言語が分からなかった回の、できあがった2つのファイル |
 
-- Podcasts・Ready の場所は、画面の Settings で変えられます（Ready を Google ドライブと同期するフォルダにしておくこともできます）。
+- **できた2つのファイルの置き場所**
+  - Podcasts フォルダにある回: 元の音声と同じフォルダ。
+  - Apple Podcasts の回: Podcasts フォルダの `言語/番組名`（例: `英語/Business Daily`）。フォルダがなければ作る。
+  - 言語が分からない回だけ、Other files のフォルダ。
+  - Made の回の **Show** を押すと、Finder でそのファイルを見せます。
+- **言語の見分け方**（確かなものから順に）: 言語のフォルダ名 → 字幕の `xml:lang` → `.json` の `sourceLanguage` →
+  Apple Podcasts の番組の言語 → 題名の文字と語。題名からの推測より、同じ番組のほかの回で分かっている言語を優先します。
+- Podcasts・Other files の場所は、画面の Settings で変えられます。
 - 同じ名前の回が両方にあるときは、Podcasts フォルダのものを使います。
 - 作り終えた回には **Made** の印が付き、一覧の下にまとまって、選べなくなります（記録は Mac に残るので、できたファイルを Ready から動かしても同じです）。作り直すときだけ **Again** を押します。
 - すでに `.json` がある回は、その訳・解説をそのまま使い、音声だけ作ります。
