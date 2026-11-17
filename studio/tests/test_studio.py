@@ -51,12 +51,25 @@ class AnnotateTest(unittest.TestCase):
         self.assertEqual(notes[2]["speak"]["vocab"][-1], ["look for", "探す"])  # 意味は最初の項目だけ
         self.assertEqual(notes[2]["speak"]["grammar"], [["en", "looking for"], ["ja", "が進行形です。"]])  # 知らない言語は ja に
 
+    def test_cleaning(self):
+        # 訳に挟まった原語を外し、日本語の意味がない語彙は外す
+        reply = '[{"id": 1, "translation": "かなり致命的、damning、だと思う。", "words": [' \
+                '{"word": "damning", "meaning": "", "pos": "形容詞"}, {"word": "quite", "meaning": "quite, rather", "pos": "副詞"},' \
+                '{"word": "walk off the job", "meaning": "walk off、仕事を放り出す", "pos": "句動詞"}], "grammar": "", "say": []}]'
+        notes = annotate.annotate([{"id": 1, "original": "It is quite damning when people walk off the job."}], "en",
+                                  ask=lambda p: reply, log=lambda *a: None)
+        self.assertEqual(notes[1]["translation"], "かなり致命的だと思う。")
+        self.assertEqual([w["word"] for w in notes[1]["words"]], ["walk off the job"])
+        self.assertEqual(notes[1]["speak"]["vocab"], [["walk off the job", "仕事を放り出す"]])
+
     @unittest.skipUnless(annotate._zipf("the", "en"), "wordfreq が必要")
     def test_frequency(self):
         notes = annotate.annotate(self.SENTS, "en", "B2", ask=fake_claude(), log=lambda *a: None)
         self.assertNotIn("the", [w["word"] for w in notes[2]["words"]])  # 易しすぎる語の説明は外す
         self.assertEqual(annotate.rare_words("The hyphae retract in Paris today.", "en"), ["hyphae", "retract"])
         self.assertFalse(annotate.too_easy("have a hard time", "en"))  # 熟語は外さない
+        self.assertTrue(annotate.too_easy("don't know if", "en"))  # 足せば分かる易しい句は外す
+        self.assertFalse(annotate.too_easy("look for", "en", pos="句動詞"))
 
     def test_retry_and_cache(self):
         calls = []
