@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Listening Studio: この Mac の中だけで動く小さな画面（http://127.0.0.1:8760）。
 
+訳・語彙・解説（.json）は Studio では作らない。選んだ回の音声と字幕をライブラリに集め、
+Claude に頼むためのプロンプトを作る。.json ができた回は、訳・解説の音声（Kokoro）を Studio が作る。
+
 この Mac にある音声と字幕（ライブラリのフォルダと Apple Podcasts）を自動で探して候補に出し、
 選んだものから Listening 用のファイルを Ready フォルダに作る。
 """
@@ -22,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pipeline  # noqa: E402
+import prompt as prompt_mod  # noqa: E402
 from listening import tts  # noqa: E402
 
 PORT = int(os.environ.get("STUDIO_PORT", "8760"))
@@ -31,7 +35,7 @@ DATA = os.environ.get("STUDIO_DATA") or (os.path.join(HOME, "Library", "Applicat
 CONFIG = os.path.join(DATA, "config.json")
 MADE = os.path.join(DATA, "made.json")  # 作り終えた回の記録。できたファイルを Ready から動かしても、作り直さないため
 DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "level": "B2",
-            "voice": "jf_alpha", "notes": "keep"}  # notes: keep = すでにある .json の訳・解説を使う / new = 作り直す
+            "voice": "jf_alpha"}
 JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
 SAMPLE = "この声で、訳と解説を読み上げます。聞き取りにくい語句と、文の組み立てを説明します。"
 
@@ -100,7 +104,7 @@ def engine_name():
 
 
 def checks():
-    return {"claude": bool(shutil.which("claude")), "ffmpeg": bool(shutil.which("ffmpeg")),
+    return {"ffmpeg": bool(shutil.which("ffmpeg")),
             "voice": engine_name() or "",
             "whisper": any(importlib.util.find_spec(m) for m in ("mlx_whisper", "faster_whisper"))}
 
@@ -119,6 +123,8 @@ def worker():
             ep = next((e for e in scan(cfg)[0] if e["name"] == name), None)
             if not ep or not os.path.exists(ep["audio"]):
                 raise RuntimeError("The audio file was not found")
+            if not ep.get("json"):
+                raise RuntimeError("No notes yet. Use Prompt and ask Claude first.")
             log("— " + name)
 
             def step(s, done=0, total=0):
@@ -126,8 +132,8 @@ def worker():
                     state.update(step=s, done=done, total=total)
 
             engine = engine_name()
-            pipeline.make(ep, ep["out"], os.path.join(DATA, "work"), cfg["level"],
-                          {"ja": cfg["voice"]} if engine == "kokoro" else None, engine, fresh=cfg["notes"] == "new",
+            pipeline.make(ep, ep["out"], os.path.join(DATA, "work"),
+                          {"ja": cfg["voice"]} if engine == "kokoro" else None, engine,
                           log=log, step=step, cancelled=lambda: state["stop"])
             mark_made(name)
             scan(cfg, force=True)
@@ -158,6 +164,7 @@ def snapshot():
         status = ("running" if e["name"] == s["current"] else "queued" if e["name"] in s["queue"]
                   else "failed" if e["name"] in s["failed"] else "ready" if e["done"] or e["name"] in made else "new")
         eps.append({"name": e["name"], "subtitles": bool(e["ttml"]), "notes": bool(e["json"]), "status": status,
+                    "wordTimes": e.get("word_times", False),
                     "source": e["source"], "lang": e.get("lang", ""), "made": made.get(e["name"], ""),
                     "out": os.path.relpath(e["out"], cfg["library"]) if cfg["library"] and e["out"].startswith(cfg["library"]) else e["out"],
                     "error": s["failed"].get(e["name"], "")})
@@ -226,6 +233,23 @@ class Handler(BaseHTTPRequestHandler):
                     if n in known and n not in state["queue"] and n != state["current"]:
                         state["queue"].append(n)
                         state["failed"].pop(n, None)
+        elif path == "/api/prompt":
+            # Apple Podcasts の回はライブラリの「言語/番組名」へ集めてから、Claude に頼むプロンプトを作る
+            cfg = load_config()
+            names = set(body.get("names") or [])
+            picked = []
+            try:
+                for e in scan(cfg)[0]:
+                    if e["name"] in names and not e.get("json"):
+                        e = pipeline.collect(e, cfg["library"])
+                        picked.append({"name": e["name"], "audio": e["audio"], "ttml": e["ttml"] if e.get("word_times") else None,
+                                       "lang": e.get("lang", ""), "replace": bool(e.get("ttml")) and not e.get("word_times"),
+                                       "json_out": os.path.join(os.path.dirname(e["audio"]), e["name"] + ".json")})
+            except (RuntimeError, OSError) as err:
+                return self.send(dict(snapshot(), error=str(err)[:300]))
+            scan(cfg, force=True)
+            text = prompt_mod.build(picked, cfg["level"], os.path.join(sys.prefix, "bin", "python")) if picked else ""
+            return self.send(dict(snapshot(), prompt=text))
         elif path == "/api/stop":
             with lock:
                 state["queue"] = []
@@ -239,8 +263,6 @@ class Handler(BaseHTTPRequestHandler):
                 cfg["level"] = body["level"]
             if body.get("voice") in JA_VOICES:
                 cfg["voice"] = body["voice"]
-            if body.get("notes") in ("keep", "new"):
-                cfg["notes"] = body["notes"]
             save_config(cfg)
         elif path == "/api/show":
             # できたファイルを Finder で見せる

@@ -10,10 +10,17 @@
 <main>
   <header>
     <h1>Listening Studio</h1>
+    <button id="ask" class="button" type="button" hidden>Prompt</button>
     <button id="make" class="button" type="button" hidden>Make</button>
     <button id="stop" class="link" type="button" hidden>Stop</button>
   </header>
   <ul id="needs" class="needs"></ul>
+  <section id="promptBox" class="prompt" hidden>
+    <div class="head"><h2>Prompt for Claude</h2>
+      <span class="pick"><button id="copy" class="link" type="button">Copy</button><button id="closePrompt" class="link" type="button">Close</button></span></div>
+    <p class="hint">Paste it into Claude Code on this Mac. Come back when the notes are made.</p>
+    <textarea id="promptText" readonly spellcheck="false"></textarea>
+  </section>
 
   <div class="head"><h2>Episodes</h2><input id="find" type="search" placeholder="Search" aria-label="Search episodes"></div>
   <div id="langs" class="tabs" role="tablist" hidden></div>
@@ -27,8 +34,6 @@
     <select id="level"><option value="B1">B1</option><option value="B2">B2</option><option value="C1">C1</option></select></div>
   <div class="row" id="voiceRow"><label for="voice">Voice</label>
     <span class="pick"><select id="voice"></select><button id="test" class="link" type="button">Test</button></span></div>
-  <div class="row"><label for="notes">Existing notes</label>
-    <select id="notes"><option value="keep">Keep</option><option value="new">Write new</option></select></div>
   <div class="row"><label for="library">Podcasts</label><input id="library" type="text" spellcheck="false"></div>
   <div class="row"><label for="ready">Other files</label><input id="ready" type="text" spellcheck="false"></div>
 </main>

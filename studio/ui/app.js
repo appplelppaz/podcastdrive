@@ -22,15 +22,18 @@ function progress(job) {
 
 function render(s) {
   last = s;
+  // 選べるのは、まだできていない回。.json がない回は Prompt（Claude に頼む）、ある回は Make（音声を作る）
   const todo = (e) => e.status === "new" || e.status === "failed";
-  const known = new Set(s.episodes.filter(todo).map((e) => e.name));
+  const known = new Map(s.episodes.filter(todo).map((e) => [e.name, e]));
   for (const n of [...chosen]) if (!known.has(n)) chosen.delete(n);
   const busy = !!s.job.name || s.episodes.some((e) => e.status === "queued");
-  $("make").hidden = !chosen.size;
-  $("make").textContent = chosen.size > 1 ? `Make ${chosen.size}` : "Make";
+  const needNotes = [...chosen].filter((n) => !known.get(n).notes), withNotes = [...chosen].filter((n) => known.get(n).notes);
+  $("ask").hidden = !needNotes.length;
+  $("ask").textContent = needNotes.length > 1 ? `Prompt ${needNotes.length}` : "Prompt";
+  $("make").hidden = !withNotes.length;
+  $("make").textContent = withNotes.length > 1 ? `Make ${withNotes.length}` : "Make";
   $("stop").hidden = !busy;
   const needs = [];
-  if (!s.checks.claude) needs.push("Claude Code is not installed. Notes cannot be made.");
   if (!s.checks.ffmpeg) needs.push("ffmpeg is not installed.");
   if (!s.checks.voice) needs.push("No voice engine found.");
   if (!s.checks.whisper) needs.push("Whisper is not installed. Episodes without subtitles cannot be made.");
@@ -68,7 +71,7 @@ function render(s) {
     again.hidden = showBtn.hidden = e.status !== "ready";
     showBtn.onclick = () => api("/api/show", { name: e.name });
     again.onclick = async () => { if (confirm(`Make “${e.name}” again?`)) render(await api("/api/make", { names: [e.name] })); };
-    li.querySelector(".meta").textContent = [e.source, e.notes ? "Notes" : e.subtitles ? "Subtitles" : "No subtitles"].filter(Boolean).join(", ");
+    li.querySelector(".meta").textContent = [e.source, e.notes ? "Notes ready" : e.subtitles && e.wordTimes ? "Subtitles" : e.subtitles ? "Subtitles without word times" : "No subtitles"].filter(Boolean).join(", ");
     li.querySelector(".error").textContent = e.error;
     const box = li.querySelector("input");
     box.disabled = !todo(e);
@@ -85,7 +88,6 @@ function render(s) {
   if (!editing) {
     $("level").value = s.config.level;
     $("library").value = s.config.library;
-    $("notes").value = s.config.notes;
     $("ready").value = s.config.ready;
     $("voiceRow").hidden = !s.voices.length;
     if ($("voice").options.length !== s.voices.length) $("voice").replaceChildren(...s.voices.map((v) => new Option(v, v)));
@@ -97,11 +99,31 @@ async function refresh() {
   try { render(await api("/api/state")); } catch { $("log").textContent = "Studio is not running. Open it again from the launcher."; }
 }
 
-$("make").onclick = async () => { const names = [...chosen]; chosen.clear(); render(await api("/api/make", { names })); };
+$("make").onclick = async () => {
+  const names = [...chosen].filter((n) => (last.episodes.find((e) => e.name === n) || {}).notes);
+  names.forEach((n) => chosen.delete(n));
+  render(await api("/api/make", { names }));
+};
+$("ask").onclick = async () => {
+  const names = [...chosen].filter((n) => !(last.episodes.find((e) => e.name === n) || {}).notes);
+  const s = await api("/api/prompt", { names });
+  names.forEach((n) => chosen.delete(n));
+  render(s);
+  if (s.error) { $("log").textContent = s.error; return; }
+  $("promptText").value = s.prompt || "";
+  $("promptBox").hidden = !s.prompt;
+  window.scrollTo({ top: 0 });
+};
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("promptText").value); } catch { $("promptText").select(); document.execCommand("copy"); }
+  $("copy").textContent = "Copied";
+  setTimeout(() => { $("copy").textContent = "Copy"; }, 1500);
+};
+$("closePrompt").onclick = () => { $("promptBox").hidden = true; };
 $("find").oninput = () => { limit = 30; if (last) render(last); };
 $("more").onclick = () => { limit += 100; render(last); };
 $("stop").onclick = async () => render(await api("/api/stop", {}));
-for (const id of ["level", "voice", "notes", "library", "ready"]) {
+for (const id of ["level", "voice", "library", "ready"]) {
   $(id).addEventListener("focus", () => { editing = true; });
   $(id).addEventListener("change", async () => { editing = false; render(await api("/api/config", { [id]: $(id).value })); });
   $(id).addEventListener("blur", () => { editing = false; });

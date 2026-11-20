@@ -176,8 +176,21 @@ const PREFERRED_VOICES = {
   de: ["Anna", "Petra"], it: ["Alice", "Federica"], ko: ["Yuna"],
 };
 
+// 端末の声の一覧。iPhone の getVoices() は、2回目以降に空や不完全な一覧を返すことがあり、
+// そのまま使うと声を選べずに既定の（機械的な）声になる。空でない一覧を覚えておき、声が増えたら入れ替える
+let knownVoices = [];
+export function deviceVoices() {
+  const synth = typeof window !== "undefined" && window.speechSynthesis;
+  const now = synth ? synth.getVoices() : [];
+  if (now.length >= knownVoices.length) knownVoices = now;
+  return knownVoices;
+}
+if (typeof window !== "undefined" && window.speechSynthesis && window.speechSynthesis.addEventListener) {
+  window.speechSynthesis.addEventListener("voiceschanged", () => deviceVoices());
+}
+
 // chosen: 設定で選んだ声（voiceURI）。その言語の声なら優先する
-export function pickVoice(lang, voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [], chosen = "") {
+export function pickVoice(lang, voices = deviceVoices(), chosen = "") {
   const base = (lang || "").split(/[-_]/)[0].toLowerCase();
   const cands = voices.filter((v) => v.lang.replace("_", "-").toLowerCase().split("-")[0] === base);
   if (!cands.length) return null;
@@ -198,6 +211,7 @@ export function pickVoice(lang, voices = window.speechSynthesis ? window.speechS
 }
 
 // onWord(i): 読み上げ中の単語の先頭の文字位置（続きから読み直すのに使う）
+let speaking = null;
 function speakWithSynthesis(text, lang, rate, onWord, chosen = "") {
   const synth = window.speechSynthesis;
   let finishNow = null;
@@ -207,10 +221,12 @@ function speakWithSynthesis(text, lang, rate, onWord, chosen = "") {
       const u = new SpeechSynthesisUtterance(text);
       const base = (lang || "").split(/[-_]/)[0].toLowerCase();
       u.lang = LOCALES[base] || lang;
-      const v = pickVoice(lang, synth.getVoices(), chosen);
+      const v = pickVoice(lang, deviceVoices(), chosen);
       if (v) {
-        try { u.voice = v; u.lang = v.lang.replace("_", "-"); } catch { /* 声を選べなければ言語の既定の声で読む */ }
+        // 言語を先に、声を後に指定する（iPhone は声の後に言語を変えると、その言語の既定の声に戻すことがある）
+        try { u.lang = v.lang.replace("_", "-"); u.voice = v; } catch { /* 声を選べなければ言語の既定の声で読む */ }
       }
+      speaking = u; // 読み上げ中の発話を手放さない（iPhone で途中の声や終わりの知らせが失われないように）
       u.rate = rate;
       let done = false;
       const finish = (r) => { if (!done) { done = true; clearTimeout(t); resolve(r); } };
