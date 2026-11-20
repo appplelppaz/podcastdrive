@@ -46,6 +46,7 @@ function mockSpeech() {
       u.__words = words;
     },
     cancel() {
+      if (!cur) window.__idleCancels = (window.__idleCancels || 0) + 1; // 何も読んでいないときの cancel（iPhone で声が戻る原因）
       if (cur) { clearTimeout(timer); cur.__words.forEach(clearTimeout); const u = cur; cur = null; synth.speaking = false; u.onerror && u.onerror({ error: "interrupted" }); }
     },
   };
@@ -301,6 +302,7 @@ async function openFromStart(page, title) {
   await waitFor(page, (n) => window.__speech.slice(n).some((x) => x.lang.startsWith("ja") && x.text.trim()), nv2);
   const later = await page.evaluate((n) => window.__speech.slice(n).filter((x) => x.lang.startsWith("ja") && x.text.trim()).map((x) => x.voice), nv2);
   check("声の一覧が空になっても、選んだ声で読み続ける", later.length > 0 && later.every((v) => v === "Kyoko"), JSON.stringify(later));
+  check("何も読んでいないときは読み上げを止めない（cancel を呼ばない）", await page.evaluate(() => !window.__idleCancels), String(await page.evaluate(() => window.__idleCancels)));
   // ---- 最後まで聞き終えたら、戻っても「Finished」のまま
   await page.evaluate(() => { const e = window.__engine; e.goto(e.doc.segments.length - 1, { stage: -1 }); });
   await waitFor(page, () => !window.__engine.playing && /Finished/.test(document.getElementById("playerStatus").textContent));

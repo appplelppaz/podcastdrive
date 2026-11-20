@@ -212,6 +212,12 @@ export function pickVoice(lang, voices = deviceVoices(), chosen = "") {
 
 // onWord(i): 読み上げ中の単語の先頭の文字位置（続きから読み直すのに使う）
 let speaking = null;
+// 読み上げ中のときだけ止める。iPhone は、何も読んでいないときに cancel() を呼ぶと、
+// 次の読み上げで選んだ声を使わず既定の声にすることがあるため
+function quietSpeech() {
+  const synth = typeof window !== "undefined" && window.speechSynthesis;
+  if (synth && (synth.speaking || synth.pending)) synth.cancel();
+}
 function speakWithSynthesis(text, lang, rate, onWord, chosen = "") {
   const synth = window.speechSynthesis;
   let finishNow = null;
@@ -238,7 +244,7 @@ function speakWithSynthesis(text, lang, rate, onWord, chosen = "") {
       const t = setTimeout(() => finish("timeout"), ([...text].length / (base === "ja" || base === "zh" ? 6 : 12) / rate + 4) * 1000);
       synth.speak(u);
     }),
-    cancel: () => { if (synth) synth.cancel(); if (finishNow) finishNow("cancel"); },
+    cancel: () => { quietSpeech(); if (finishNow) finishNow("cancel"); },
   };
 }
 
@@ -381,7 +387,7 @@ export class ListeningEngine extends EventTarget {
     this.token++;
     this.player.stop();
     if (this.speech) { this.speech.cancel(); this.speech = null; }
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    quietSpeech();
     this.emit("position");
   }
 
@@ -517,7 +523,7 @@ export class ListeningEngine extends EventTarget {
     }
     // direct: 元音声は MP3 の時刻、読み上げは端末の音声合成
     if (step.kind === "original") {
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      quietSpeech();
       const { begin, end } = this.segment.clip;
       return this.player.play(from ?? begin, end, step.rate);
     }

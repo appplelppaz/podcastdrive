@@ -90,7 +90,7 @@ function render(s) {
     $("library").value = s.config.library;
     $("ready").value = s.config.ready;
     $("voiceRow").hidden = !s.voices.length;
-    if ($("voice").options.length !== s.voices.length) $("voice").replaceChildren(...s.voices.map((v) => new Option(v, v)));
+    if ($("voice").options.length !== s.voices.length) $("voice").replaceChildren(...s.voices.map((v) => new Option(v.startsWith("mac:") ? v.slice(4) + " (Mac)" : v, v)));
     $("voice").value = s.config.voice;
   }
 }

@@ -43,6 +43,20 @@ class DifficultyTest(unittest.TestCase):
         self.assertIn("gloss in translation", out[0])
 
 
+class VoiceTest(unittest.TestCase):
+    def test_mac_voices(self):
+        import server
+        listing = "Kyoko               ja_JP    # こんにちは\nKyoko (Enhanced)    ja_JP    # こんにちは\nSamantha            en_US    # Hello\n"
+        real_which, real_run = server.shutil.which, server.subprocess.run
+        server.shutil.which = lambda n: "/usr/bin/say"
+        server.subprocess.run = lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=listing)
+        try:
+            self.assertEqual(server.mac_voices(), ["mac:Kyoko", "mac:Kyoko (Enhanced)"])
+        finally:
+            server.shutil.which, server.subprocess.run = real_which, real_run
+        self.assertEqual(server.voice_setup("mac:Kyoko (Enhanced)"), ("say", {"ja": "Kyoko (Enhanced)"}))
+
+
 class PromptTest(unittest.TestCase):
     def test_prompt(self):
         text = prompt.build([{"name": "A", "audio": "/p/A.mp3", "ttml": "/p/A.ttml", "json_out": "/p/A.json", "lang": "en"},
