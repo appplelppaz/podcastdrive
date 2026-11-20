@@ -36,7 +36,35 @@ CONFIG = os.path.join(DATA, "config.json")
 MADE = os.path.join(DATA, "made.json")  # 作り終えた回の記録。できたファイルを Ready から動かしても、作り直さないため
 DEFAULTS = {"library": "", "ready": os.path.join(HOME, "Desktop", "Listening", "Ready"), "level": "B2",
             "voice": "jf_alpha"}
-JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]
+JA_VOICES = ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"]  # Kokoro
+
+
+def mac_voices():
+    """この Mac の日本語の声（iPhone と同じ Kyoko・Otoya など）。「mac:声の名前」で選ぶ。"""
+    if not shutil.which("say"):
+        return []
+    try:
+        out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    names = []
+    for line in out.splitlines():
+        m = __import__("re").match(r"^(.+?)\s+(ja[_-]JP)\b", line)
+        if m:
+            names.append("mac:" + m.group(1).strip())
+    return names
+
+
+def all_voices():
+    return (JA_VOICES if tts._has_kokoro() else []) + mac_voices()
+
+
+def voice_setup(voice):
+    """(音声合成の種類, 声の指定)。mac: の声は macOS の say で読む。"""
+    if voice.startswith("mac:"):
+        return "say", {"ja": voice[4:]}
+    engine = engine_name()
+    return engine, ({"ja": voice} if engine == "kokoro" and voice in JA_VOICES else None)
 SAMPLE = "この声で、訳と解説を読み上げます。聞き取りにくい語句と、文の組み立てを説明します。"
 
 lock = threading.Lock()
@@ -131,9 +159,8 @@ def worker():
                 with lock:
                     state.update(step=s, done=done, total=total)
 
-            engine = engine_name()
-            pipeline.make(ep, ep["out"], os.path.join(DATA, "work"),
-                          {"ja": cfg["voice"]} if engine == "kokoro" else None, engine,
+            engine, voices = voice_setup(cfg["voice"])
+            pipeline.make(ep, ep["out"], os.path.join(DATA, "work"), voices, engine,
                           log=log, step=step, cancelled=lambda: state["stop"])
             mark_made(name)
             scan(cfg, force=True)
@@ -169,7 +196,7 @@ def snapshot():
                     "out": os.path.relpath(e["out"], cfg["library"]) if cfg["library"] and e["out"].startswith(cfg["library"]) else e["out"],
                     "error": s["failed"].get(e["name"], "")})
     return {"config": cfg,
-            "voices": JA_VOICES if engine_name() == "kokoro" else [], "episodes": eps,
+            "voices": all_voices(), "episodes": eps,
             "checks": dict(checks(), apple=problem, library=bool(cfg["library"]) and os.path.isdir(cfg["library"])),
             "job": {"name": s["current"], "step": s["step"], "done": s["done"], "total": s["total"]}, "log": s["log"][-12:]}
 
@@ -201,12 +228,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(snapshot())
         if url.path == "/api/voice.wav":
             voice = (parse_qs(url.query).get("voice") or [""])[0]
-            if voice not in JA_VOICES:
-                voice = None
+            if voice not in all_voices():
+                voice = load_config()["voice"]
             with tempfile.TemporaryDirectory() as tmp:
                 out = os.path.join(tmp, "v.wav")
                 try:
-                    pipeline.voice_sample(SAMPLE, "ja", voice, out, engine_name())
+                    engine, voices = voice_setup(voice)
+                    pipeline.voice_sample(SAMPLE, "ja", (voices or {}).get("ja"), out, engine)
                     with open(out, "rb") as f:
                         return self.send(f.read(), "audio/wav")
                 except Exception as err:
@@ -261,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
                     cfg[k] = os.path.abspath(os.path.expanduser(body[k].strip()))
             if body.get("level") in ("B1", "B2", "C1"):
                 cfg["level"] = body["level"]
-            if body.get("voice") in JA_VOICES:
+            if body.get("voice") in all_voices():
                 cfg["voice"] = body["voice"]
             save_config(cfg)
         elif path == "/api/show":

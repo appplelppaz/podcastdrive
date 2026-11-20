@@ -81,7 +81,7 @@ $("testVoice").onclick = () => {
   const synth = window.speechSynthesis;
   if (!synth) return;
   if (engine && engine.playing) engine.pause();
-  synth.cancel();
+  if (synth.speaking || synth.pending) synth.cancel();
   const u = new SpeechSynthesisUtterance("この声で、訳と解説を読み上げます。");
   const v = pickVoice(VOICE_LANG, deviceVoices(), settings.voice);
   u.lang = v ? v.lang.replace("_", "-") : "ja-JP";
