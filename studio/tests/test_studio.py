@@ -13,86 +13,44 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-import annotate  # noqa: E402
+import difficulty  # noqa: E402
 import pipeline  # noqa: E402
+import prompt  # noqa: E402
+import review  # noqa: E402
 
 
-def fake_claude(replies=None, calls=None):
-    """入力の各文に、決まった形の返事を返す。replies があれば先にそれを順に返す。"""
-    replies = list(replies or [])
-
-    def ask(prompt):
-        if calls is not None:
-            calls.append(prompt)
-        if replies:
-            return replies.pop(0)
-        items = json.loads(prompt[prompt.rindex("\n\n[") + 2:].split("\n\n前回の返事")[0])
-        out = []
-        for it in items:
-            hard = "cheaper" in it["text"]
-            out.append({"id": it["id"], "translation": "訳%d。" % it["id"],
-                        "words": [{"word": "the", "meaning": "その", "pos": "冠詞"},
-                                  {"word": "look for", "meaning": "探す、求める", "pos": "句動詞"}] if hard else [],
-                        "grammar": "looking for が進行形で、今まさに探していることを表します。" if hard else "",
-                        "say": [["en", "looking for"], ["xx", "が進行形です。"]] if hard else [["ja", "不要な説明"]]})
-        return "Here you go:\n```json\n" + json.dumps(out, ensure_ascii=False) + "\n```"
-    return ask
-
-
-class AnnotateTest(unittest.TestCase):
-    SENTS = [{"id": 1, "original": "Good morning."}, {"id": 2, "original": "Many shoppers are looking for cheaper options."}]
-
-    def test_shapes_and_selection(self):
-        notes = annotate.annotate(self.SENTS, "en", "B2", ask=fake_claude(), log=lambda *a: None)
-        self.assertEqual(notes[1]["words"], [])
-        self.assertEqual(notes[1]["speak"], {"vocab": [], "grammar": []})  # 解説がなければ読み上げも空
-        words = [w["word"] for w in notes[2]["words"]]
-        self.assertIn("look for", words)
-        self.assertEqual(notes[2]["speak"]["vocab"][-1], ["look for", "探す"])  # 意味は最初の項目だけ
-        self.assertEqual(notes[2]["speak"]["grammar"], [["en", "looking for"], ["ja", "が進行形です。"]])  # 知らない言語は ja に
-
-    def test_cleaning(self):
-        # 訳に挟まった原語を外し、日本語の意味がない語彙は外す
-        reply = '[{"id": 1, "translation": "かなり致命的、damning、だと思う。", "words": [' \
-                '{"word": "damning", "meaning": "", "pos": "形容詞"}, {"word": "quite", "meaning": "quite, rather", "pos": "副詞"},' \
-                '{"word": "walk off the job", "meaning": "walk off、仕事を放り出す", "pos": "句動詞"}], "grammar": "", "say": []}]'
-        notes = annotate.annotate([{"id": 1, "original": "It is quite damning when people walk off the job."}], "en",
-                                  ask=lambda p: reply, log=lambda *a: None)
-        self.assertEqual(notes[1]["translation"], "かなり致命的だと思う。")
-        self.assertEqual([w["word"] for w in notes[1]["words"]], ["walk off the job"])
-        self.assertEqual(notes[1]["speak"]["vocab"], [["walk off the job", "仕事を放り出す"]])
-
-    @unittest.skipUnless(annotate._zipf("the", "en"), "wordfreq が必要")
+class DifficultyTest(unittest.TestCase):
+    @unittest.skipUnless(difficulty._zipf("the", "en"), "wordfreq が必要")
     def test_frequency(self):
-        notes = annotate.annotate(self.SENTS, "en", "B2", ask=fake_claude(), log=lambda *a: None)
-        self.assertNotIn("the", [w["word"] for w in notes[2]["words"]])  # 易しすぎる語の説明は外す
-        self.assertEqual(annotate.rare_words("The hyphae retract in Paris today.", "en"), ["hyphae", "retract"])
-        self.assertFalse(annotate.too_easy("have a hard time", "en"))  # 熟語は外さない
-        self.assertTrue(annotate.too_easy("don't know if", "en"))  # 足せば分かる易しい句は外す
-        self.assertFalse(annotate.too_easy("look for", "en", pos="句動詞"))
+        self.assertEqual(difficulty.rare_words("The hyphae retract in Paris today.", "en"), ["hyphae", "retract"])
+        self.assertTrue(difficulty.too_easy("the", "en"))
+        self.assertFalse(difficulty.too_easy("have a hard time", "en"))  # 熟語は外さない
+        self.assertTrue(difficulty.too_easy("don't know if", "en"))  # 足せば分かる易しい句は外す
+        self.assertFalse(difficulty.too_easy("look for", "en", pos="句動詞"))
 
-    def test_retry_and_cache(self):
-        calls = []
-        bad = json.dumps([{"id": 1, "translation": "訳"}])  # 件数が足りない
+    def test_review(self):
+        doc = {"metadata": {"sourceLanguage": "en"}, "segments": [
+            {"id": 1, "original": "It is quite damning.", "translation": "かなり致命的、damning、だ。",
+             "words": [{"word": "damning", "meaning": "", "pos": "形容詞"}]},
+            {"id": 2, "original": "Good morning.", "translation": "おはよう。", "words": []}]}
         with tempfile.TemporaryDirectory() as tmp:
-            cache = os.path.join(tmp, "notes.json")
-            notes = annotate.annotate(self.SENTS, "en", "B2", ask=fake_claude([bad], calls), log=lambda *a: None, cache_path=cache)
-            self.assertEqual(len(calls), 2)
-            self.assertIn("前回の返事は使えませんでした", calls[1])
-            self.assertEqual(sorted(notes), [1, 2])
-            again = annotate.annotate(self.SENTS, "en", "B2", ask=lambda p: self.fail("should use the cache"), cache_path=cache)
-            self.assertEqual(again, notes)
+            path = os.path.join(tmp, "a.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False)
+            out = review.review(path)
+        self.assertEqual(len(out), 1)
+        self.assertIn("no meaning: damning", out[0])
+        self.assertIn("gloss in translation", out[0])
 
-    def test_gives_up(self):
-        with self.assertRaises(RuntimeError):
-            annotate.annotate(self.SENTS, "en", ask=lambda p: "sorry", log=lambda *a: None)
 
-    def test_shift_detected(self):
-        items = [{"id": i, "text": "It rose %d percent in 20%d." % (i + 10, i + 10)} for i in range(1, 6)]
-        ok = [{"id": i, "translation": "20%d年に%dパーセント上がった。" % (i + 10, i + 10)} for i in range(1, 6)]
-        self.assertIsNone(annotate.check_batch(items, ok))
-        shifted = [{"id": i, "translation": "別の文です。"} for i in range(1, 6)]
-        self.assertIn("shifted", annotate.check_batch(items, shifted))
+class PromptTest(unittest.TestCase):
+    def test_prompt(self):
+        text = prompt.build([{"name": "A", "audio": "/p/A.mp3", "ttml": "/p/A.ttml", "json_out": "/p/A.json", "lang": "en"},
+                             {"name": "B", "audio": "/p/B.mp3", "ttml": None, "json_out": "/p/B.json", "lang": "zh", "replace": True}],
+                            "C1", "/venv/bin/python")
+        for want in ('"/p/A.ttml"', '"/p/B.json"', "guide.md", "validate.py", "review.py", "transcribe.py", "--force", "C1", "/venv/bin/python"):
+            self.assertIn(want, text)
+        self.assertNotIn("transcribe.py", prompt.build([{"name": "A", "audio": "/a", "ttml": "/t", "json_out": "/j"}]))
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("espeak-ng"), "ffmpeg と espeak-ng が必要")
@@ -105,7 +63,7 @@ class PipelineTest(unittest.TestCase):
             inbox = os.path.join(lib, "英語", "Demo Radio")  # ライブラリは下のフォルダも探す
             os.makedirs(inbox)
             name = "[Demo Radio] Morning market check (20260101)"
-            for ext in (".mp3", ".ttml"):
+            for ext in (".mp3", ".ttml", ".json"):
                 shutil.copy(os.path.join(fx, name + ext), inbox)
             shutil.copy(os.path.join(fx, name + ".mp3"), os.path.join(inbox, "lonely.mp3"))
             open(os.path.join(inbox, "notes.txt"), "w").close()
@@ -115,7 +73,9 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual([(e["name"], bool(e["ttml"]), e["done"], e["source"]) for e in eps],
                              [(name, True, False, os.path.join("英語", "Demo Radio")), ("lonely", False, False, os.path.join("英語", "Demo Radio"))])
             steps = []
-            out = pipeline.make(eps[0], ready, os.path.join(tmp, "work"), "B2", None, "espeak-ng", ask=fake_claude(),
+            with self.assertRaises(RuntimeError):  # .json（Claude に作ってもらうもの）がまだない回は作れない
+                pipeline.make(eps[1], ready, os.path.join(tmp, "work"), None, "espeak-ng", log=lambda *a: None)
+            out = pipeline.make(eps[0], ready, os.path.join(tmp, "work"), None, "espeak-ng",
                                 log=lambda *a: None, step=lambda s, d=0, t=0: steps.append(s))
             self.assertEqual(sorted(os.listdir(ready)), ["Morning market check (2026-01-01).listening.json",
                                                          "Morning market check (2026-01-01).listening.m4a"])
@@ -123,9 +83,9 @@ class PipelineTest(unittest.TestCase):
                 doc = json.load(f)
             self.assertEqual(doc["audio"]["mode"], "sprite")
             self.assertEqual(len(doc["segments"]), 4)
-            self.assertEqual(doc["segments"][2]["translation"], "訳3。")
+            self.assertTrue(doc["segments"][2]["translation"])
             self.assertTrue(all("orig:" + s["id"] in doc["audio"]["clips"] for s in doc["segments"]))
-            self.assertEqual([s for i, s in enumerate(steps) if i == 0 or s != steps[i - 1]], ["Notes", "Voice"])
+            self.assertEqual([s for i, s in enumerate(steps) if i == 0 or s != steps[i - 1]], ["Voice"])
             done_of = lambda *a: {e["name"]: e["done"] for e in pipeline.scan(lib, *a, home=home)[0]}  # noqa: E731
             self.assertEqual(done_of(ready), {name: True, "lonely": False})
             for f in os.listdir(ready):  # 音声と同じフォルダに置いたものも「できあがり」
@@ -136,13 +96,42 @@ class PipelineTest(unittest.TestCase):
                     shutil.move(os.path.join(inbox, f), ready)
             self.assertEqual([e["name"] for e in pipeline.finished(ready)], ["Morning market check (2026-01-01)"])
 
+    def test_line_timed_subtitles(self):
+        # 1行ごとの時刻しかない字幕は、単語の時刻を作り直す（Whisper を呼ぶ）。訳・解説の .json はそのまま
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = os.path.join(tmp, "fx")
+            subprocess.run([sys.executable, os.path.join(HERE, "make_fixture.py"), fx], check=True, capture_output=True)
+            name = "[Demo Radio] Morning market check (20260101)"
+            line = ('<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en"><body><div>'
+                    '<p begin="00:00:00.000" end="00:00:12.000">Good morning and welcome to the market check.</p></div></body></tt>')
+            with open(os.path.join(fx, name + ".ttml"), "w") as f:
+                f.write(line)
+            ep = next(e for e in pipeline.sources.library_episodes(fx) if e["name"] == name)
+            self.assertFalse(pipeline.sources.has_word_times(ep["ttml"]))
+            calls = []
+            import transcribe
+            real = transcribe.main
+
+            def fake_whisper(argv):
+                calls.append(argv)
+                raise SystemExit("Whisper is not installed")
+            transcribe.main = fake_whisper
+            try:
+                with self.assertRaises(RuntimeError):
+                    pipeline.make(ep, tmp, os.path.join(tmp, "work"), log=lambda *a: None)
+            finally:
+                transcribe.main = real
+            self.assertEqual(len(calls), 1)
+            self.assertIn("--lang", calls[0])
+            self.assertEqual(calls[0][calls[0].index("--lang") + 1], "en")
+
     def test_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
             fx = os.path.join(tmp, "fx")
             subprocess.run([sys.executable, os.path.join(HERE, "make_fixture.py"), fx], check=True, capture_output=True)
-            ep = dict(pipeline.sources.library_episodes(fx)[0], json=None)
+            ep = pipeline.sources.library_episodes(fx)[0]
             with self.assertRaises(pipeline.Cancelled):
-                pipeline.make(ep, tmp, os.path.join(tmp, "work"), ask=fake_claude(), log=lambda *a: None, cancelled=lambda: True)
+                pipeline.make(ep, tmp, os.path.join(tmp, "work"), log=lambda *a: None, cancelled=lambda: True)
 
 
 class AppleTest(unittest.TestCase):
@@ -201,6 +190,11 @@ class AppleTest(unittest.TestCase):
             self.assertEqual(pipeline.out_dir(by["[Demo Radio] With subtitles (20260101)"], lib, ready), os.path.join(lib, "French", "Demo Radio"))
             self.assertEqual(pipeline.out_dir({"apple": True, "lang": "", "name": "[X] y", "audio": "a"}, lib, ready), ready)
             self.assertEqual(by["[Demo Radio] Audio only (20260101)"]["lang"], "fr")  # 同じ番組のほかの回に合わせる
+            # Prompt の前に、Apple の回をライブラリの「言語/番組名」へコピーする（元はそのまま）
+            col = pipeline.collect(by["[Demo Radio] With subtitles (20260101)"], lib)
+            self.assertEqual(os.path.dirname(col["audio"]), os.path.join(lib, "French", "Demo Radio"))
+            self.assertTrue(os.path.exists(col["ttml"]) and os.path.exists(os.path.join(cache, "a.mp3")))
+            self.assertEqual(os.path.basename(col["audio"]), "[Demo Radio] With subtitles (20260101).mp3")
             got = {e["name"]: (e["source"], bool(e["ttml"])) for e in eps}
             self.assertEqual(got, {"[Demo Radio] With subtitles (20260101)": ("Apple Podcasts", True),
                                    "[Demo Radio] Audio only (20260101)": ("", False)})

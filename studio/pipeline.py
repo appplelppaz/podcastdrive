@@ -11,12 +11,12 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-import annotate as annotate_mod  # noqa: E402
 import sources  # noqa: E402
 import ttml as ttml_mod  # noqa: E402
 import validate as validate_mod  # noqa: E402
@@ -40,6 +40,36 @@ def finished(folder):
                 files = [os.path.join(folder, stem + ext) for ext in (".listening.json", ".listening.m4a")]
                 if os.path.exists(files[1]):
                     out.append({"name": stem, "files": files, "bytes": sum(os.path.getsize(f) for f in files)})
+    return out
+
+
+def library_dir(ep, library):
+    """Apple Podcasts の回を集める、ライブラリの「言語/番組名」フォルダ（言語が分からなければ その他/番組名）。"""
+    folder = sources.LANG_FOLDER_NAMES.get(ep.get("lang"), "その他")
+    if ep.get("lang") and os.path.isdir(library):
+        for name in sorted(os.listdir(library)):  # すでにある言語のフォルダ（English など別の名前でも）を使う
+            if sources.LANG_FOLDERS.get(name.lower()) == ep["lang"] and os.path.isdir(os.path.join(library, name)):
+                folder = name
+                break
+    return os.path.join(library, folder, sources.channel_of(ep["name"]) or "Podcast")
+
+
+def collect(ep, library):
+    """Apple Podcasts の回の音声と字幕を、ライブラリへコピーする（元のファイルは変えない）。コピー後の ep を返す。"""
+    if not ep.get("apple"):
+        return ep
+    if not library:
+        raise RuntimeError("Set the Podcasts folder in Settings.")
+    dest = library_dir(ep, library)
+    os.makedirs(dest, exist_ok=True)
+    out = dict(ep, apple=False, source=os.path.relpath(dest, library))
+    for key in ("audio", "ttml"):
+        if ep.get(key):
+            dst = os.path.join(dest, ep["name"] + os.path.splitext(ep[key])[1].lower())
+            if not os.path.exists(dst):
+                shutil.copy2(ep[key], dst + ".part")
+                os.replace(dst + ".part", dst)
+            out[key] = dst
     return out
 
 
@@ -81,8 +111,8 @@ def _out_stem(stem):
     return convert.episode_stem(_meta(stem, ""), stem + ".json")
 
 
-def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None, voice=True, fresh=False,
-         log=print, step=lambda name, done=0, total=0: None, cancelled=lambda: False, ask=None):
+def make(ep, ready, work, voices=None, voice_engine=None, lang=None, voice=True,
+         log=print, step=lambda name, done=0, total=0: None, cancelled=lambda: False):
     """ep: scan() の1件。できたファイルの場所を返す。"""
     name = ep["name"]
     wdir = os.path.join(work, re.sub(r"[^\w.-]+", "_", name)[:80])
@@ -93,8 +123,13 @@ def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None,
         if cancelled():
             raise Cancelled()
 
-    # 1. 字幕。なければ音声から作る（単語ごとの時刻付き）
+    # 1. 字幕。なければ音声から作る（単語ごとの時刻付き）。
+    #    1行ごとの時刻しかない字幕（以前の Whisper）は、読んでいる単語を強調できないので作り直す（訳・解説の .json はそのまま使う）
     ttml_path = ep.get("ttml")
+    if ttml_path and ttml_mod.ttml_timing(ttml_path) != "word":
+        lang = lang or sources.language_of(ep) or None
+        log("The subtitles have no word times. Transcribing again for word highlighting…")
+        ttml_path = None
     if not ttml_path:
         ttml_path = os.path.join(wdir, "whisper.ttml")
         if not os.path.exists(ttml_path):
@@ -110,35 +145,14 @@ def make(ep, ready, work, level="B2", voices=None, voice_engine=None, lang=None,
                     raise RuntimeError(str(err.code))
     check()
 
-    # 2. 訳・語彙・解説。すでに .json がある回はそれを使う
-    json_path = None if fresh else ep.get("json")  # fresh: すでにある訳・解説を使わず、作り直す
+    # 2. 訳・語彙・解説の .json（Claude に作ってもらったもの）。なければ先に作ってもらう
+    json_path = ep.get("json")
     if not json_path:
-        json_path = os.path.join(wdir, name + ".json")
-        source_lang, segs = ttml_mod.parse_ttml(ttml_path)
-        source_lang = lang or source_lang
-        if not segs:
-            raise RuntimeError("No sentences found in the subtitles")
-        step("Notes", 0, len(segs))
-        notes = annotate_mod.annotate(
-            [{"id": s["id"], "original": s["original"]} for s in segs], source_lang, level, log=log,
-            progress=lambda d, t: (check(), step("Notes", d, t)), cache_path=os.path.join(wdir, "notes.json"),
-            **({"ask": ask} if ask else {}))
-        out = []
-        for s in segs:
-            n = notes[s["id"]]
-            seg = {"id": s["id"], "begin": s["begin"], "end": s["end"], "original": n["fix"] or s["original"],
-                   "translation": n["translation"], "words": n["words"], "grammar": n["grammar"], "speak": n["speak"]}
-            if n["fix"] and n["fix"] != s["original"]:
-                seg["grammar"] = (seg["grammar"] + "\n" if seg["grammar"] else "") + "【訂正】音声認識では「%s」となっていたのを訂正。" % s["original"]
-            if "wordTimings" in s:
-                seg["wordTimings"] = s["wordTimings"]
-            out.append(seg)
-        ttml_mod.write_episode_json({"metadata": _meta(name, source_lang), "segments": out}, json_path)
-        errors, warnings = validate_mod.validate(json_path, ttml_path)
-        for w in warnings[:8]:
-            log("Check: " + w)
-        if errors:
-            raise RuntimeError("The notes did not pass the check: " + "; ".join(errors[:3]))
+        raise RuntimeError("No notes yet. Ask Claude to make them first (Prompt).")
+    # 以前に作った .json（speak がないものなど）もそのまま使えるので、確かめた結果は知らせるだけ
+    errors, warnings = validate_mod.validate(json_path, ttml_path)
+    for w in (errors + warnings)[:5]:
+        log("Check: " + w)
     check()
 
     # 3. 聞き流しアプリの形にして、訳・解説の音声を作る

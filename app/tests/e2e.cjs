@@ -295,6 +295,12 @@ async function openFromStart(page, title) {
   await waitFor(page, (n) => window.__speech.slice(n).some((x) => x.lang.startsWith("ja") && x.text.trim()), nv);
   const used = await page.evaluate((n) => window.__speech.slice(n).filter((x) => x.text.trim()), nv);
   check("選んだ声で訳を読む（原語の声は変えない）", used.filter((x) => x.lang.startsWith("ja")).every((x) => x.voice === "Kyoko") && used.every((x) => !x.lang.startsWith("en") || x.voice !== "Kyoko"), JSON.stringify(used.map((x) => [x.lang, x.voice])));
+  // iPhone の getVoices() が途中から空の一覧を返しても、選んだ声のまま読む
+  const nv2 = await page.evaluate(() => { speechSynthesis.getVoices = () => []; return window.__speech.length; });
+  await page.evaluate(() => window.__engine.goto(1));
+  await waitFor(page, (n) => window.__speech.slice(n).some((x) => x.lang.startsWith("ja") && x.text.trim()), nv2);
+  const later = await page.evaluate((n) => window.__speech.slice(n).filter((x) => x.lang.startsWith("ja") && x.text.trim()).map((x) => x.voice), nv2);
+  check("声の一覧が空になっても、選んだ声で読み続ける", later.length > 0 && later.every((v) => v === "Kyoko"), JSON.stringify(later));
   // ---- 最後まで聞き終えたら、戻っても「Finished」のまま
   await page.evaluate(() => { const e = window.__engine; e.goto(e.doc.segments.length - 1, { stage: -1 }); });
   await waitFor(page, () => !window.__engine.playing && /Finished/.test(document.getElementById("playerStatus").textContent));

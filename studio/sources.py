@@ -59,6 +59,14 @@ def _read_head(path, size=4000):
         return ""
 
 
+def has_word_times(ttml):
+    """字幕に単語ごとの時刻があるか（Apple の字幕・新しい Whisper）。1行ごとの時刻だけ（以前の Whisper）なら False。"""
+    if not ttml:
+        return False
+    head = _read_head(ttml, 30000)
+    return head.count('unit="word"') >= 2 * max(1, head.count("<p "))
+
+
 def channel_of(name):
     m = re.match(r"^\[(.+?)\]", name)
     return m.group(1) if m else ""
@@ -247,6 +255,7 @@ def collect(library, home=None):
         problem = str(err)[:200]
     for e in eps.values():
         e["lang"] = language_of(e)
+        e["word_times"] = has_word_times(e.get("ttml"))
     # 題名から推測しただけの回は、同じ番組の確かな回（フォルダ名・字幕・JSON で分かった回）の言語に合わせる
     by_channel = {}
     for e in eps.values():

@@ -1,4 +1,4 @@
-import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, pickVoice, unlockSpeech } from "./engine.js";
+import { DEFAULTS, LIMITS, ListeningEngine, clampSettings, deviceVoices, pickVoice, unlockSpeech } from "./engine.js";
 import * as store from "./store.js";
 import { alignSubtitle } from "./subtitle.js";
 import { langBase, tidySpeech } from "./material.js";
@@ -20,7 +20,7 @@ const voiceQuality = (v) => (/premium|プレミアム/i.test(v.name) ? 2 : /enha
 function fillVoices() {
   const sel = $("voice");
   const synth = window.speechSynthesis;
-  const voices = (synth ? synth.getVoices() : []).filter((v) => langBase(v.lang.replace("_", "-")) === VOICE_LANG)
+  const voices = deviceVoices().filter((v) => langBase(v.lang.replace("_", "-")) === VOICE_LANG)
     .sort((a, b) => voiceQuality(b) - voiceQuality(a) || a.name.localeCompare(b.name));
   const auto = pickVoice(VOICE_LANG);
   sel.replaceChildren(new Option(auto ? `Auto (${auto.name})` : "Auto", ""), ...voices.map((v) => new Option(v.name, v.voiceURI)));
@@ -83,7 +83,7 @@ $("testVoice").onclick = () => {
   if (engine && engine.playing) engine.pause();
   synth.cancel();
   const u = new SpeechSynthesisUtterance("この声で、訳と解説を読み上げます。");
-  const v = pickVoice(VOICE_LANG, synth.getVoices(), settings.voice);
+  const v = pickVoice(VOICE_LANG, deviceVoices(), settings.voice);
   u.lang = v ? v.lang.replace("_", "-") : "ja-JP";
   if (v) u.voice = v;
   u.rate = settings.translationRate;
